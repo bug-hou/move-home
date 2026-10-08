@@ -5,7 +5,7 @@
 ## 目录
 
 ```
-index.html                    前端（原生 JS，无需构建）
+index.html / src/             前端（Vite + React + Ant Design，简约风格）
 edge-functions/api/auth/      register / login / logout / me
 edge-functions/api/files/     list / upload-url / download / delete
 lib/                          公共模块（配置、鉴权、路径校验）
@@ -30,11 +30,20 @@ lib/                          公共模块（配置、鉴权、路径校验）
 ## 本地开发
 
 ```bash
+npm install
 npm i -g edgeone
 edgeone login
 edgeone makers link    # 关联项目，使用 KV 并同步环境变量
-edgeone makers dev     # http://localhost:8088
+npm run dev:edge       # 前端 + 接口，http://localhost:8088（等同 edgeone makers dev，会调用 npm run dev）
 ```
+
+也可单独 `npm run dev`（http://localhost:5173），`/api` 会代理到 8088，需同时运行 `npm run dev:edge`。
+
+## 注册 / 登录报错排查
+
+- 提示「未检测到 KV 绑定」：控制台创建 KV 命名空间并绑定，变量名 `netdisk_kv`；本地需先 `edgeone makers link`。
+- 提示「注册已关闭」：首个账号注册后默认关闭注册，直接登录，或设置 `ALLOW_REGISTER=true`。
+- 提示「接口不可用 / 接口返回异常」：只启动了 Vite 而没有启动后端，请运行 `npm run dev:edge`。
 
 ## 已知限制 / 后续可做
 

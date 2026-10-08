@@ -10,7 +10,7 @@ export const onRequestPost = route(
     const password = validatePassword(body.password);
 
     const open = (env?.ALLOW_REGISTER ?? globalThis.ALLOW_REGISTER) === 'true';
-    if (!open && (await hasAnyUser())) throw new HttpError(403, '注册已关闭');
+    if (!open && (await hasAnyUser())) throw new HttpError(403, '注册已关闭：已存在管理员账号，请直接登录；如需开放注册，请在环境变量中设置 ALLOW_REGISTER=true');
     if (await getUser(username)) throw new HttpError(409, '用户名已存在');
 
     await createUser(username, password);
