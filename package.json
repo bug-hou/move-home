@@ -1,0 +1,10 @@
+{
+  "name": "move-home",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A mini netdisk on EdgeOne Makers (Edge Functions + KV + Blob)",
+  "dependencies": {
+    "@edgeone/pages-blob": "latest"
+  }
+}

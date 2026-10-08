@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Move Home - 个人网盘</title>
+  <style>
+    :root { --bg:#f5f6f8; --card:#fff; --primary:#2563eb; --text:#1f2937; --muted:#6b7280; --border:#e5e7eb; --danger:#dc2626; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; background:var(--bg); color:var(--text); }
+    .hidden { display:none !important; }
+    button { cursor:pointer; border:0; border-radius:6px; padding:7px 14px; background:var(--primary); color:#fff; font-size:14px; }
+    button.ghost { background:transparent; color:var(--primary); border:1px solid var(--border); }
+    button.danger { background:transparent; color:var(--danger); }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    input[type=text], input[type=password] { width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; }
+
+    #auth { min-height:100vh; display:flex; align-items:center; justify-content:center; }
+    .card { background:var(--card); border-radius:12px; padding:28px; box-shadow:0 4px 20px rgba(0,0,0,.06); }
+    #auth .card { width:340px; }
+    #auth h1 { margin:0 0 20px; font-size:22px; text-align:center; }
+    #auth .field { margin-bottom:12px; }
+    #auth .actions { display:flex; gap:8px; margin-top:16px; }
+    #auth .actions button { flex:1; }
+    .msg { color:var(--danger); min-height:20px; margin-top:10px; font-size:13px; }
+
+    header { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; background:var(--card); border-bottom:1px solid var(--border); }
+    header h2 { margin:0; font-size:18px; }
+    main { max-width:960px; margin:24px auto; padding:0 16px; }
+    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .crumbs { flex:1; color:var(--muted); }
+    .crumbs a { color:var(--primary); cursor:pointer; }
+    .drop { border:2px dashed var(--border); border-radius:10px; padding:18px; text-align:center; color:var(--muted); margin-bottom:12px; background:var(--card); }
+    .drop.over { border-color:var(--primary); color:var(--primary); }
+    table { width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden; }
+    td { padding:10px 14px; border-bottom:1px solid var(--border); }
+    tr:last-child td { border-bottom:0; }
+    td.name { word-break:break-all; }
+    td.ops { text-align:right; white-space:nowrap; }
+    td.ops button { padding:4px 10px; margin-left:4px; }
+    .link { color:var(--primary); cursor:pointer; text-decoration:none; }
+    .empty { text-align:center; color:var(--muted); padding:30px; }
+    #uploads { margin:12px 0; font-size:13px; }
+    .up { display:flex; gap:10px; align-items:center; margin:4px 0; }
+    .up progress { flex:1; height:8px; }
+    #preview { position:fixed; inset:0; background:rgba(0,0,0,.75); display:flex; align-items:center; justify-content:center; z-index:10; }
+    #preview .box { max-width:92vw; max-height:90vh; }
+    #preview img, #preview video { max-width:92vw; max-height:85vh; display:block; }
+    #preview .bar { text-align:right; margin-bottom:8px; }
+  </style>
+</head>
+<body>
+  <!-- 登录 / 注册 -->
+  <section id="auth" class="hidden">
+    <div class="card">
+      <h1>Move Home</h1>
+      <div class="field"><input id="u" type="text" placeholder="用户名（小写字母/数字/下划线）" autocomplete="username" /></div>
+      <div class="field"><input id="p" type="password" placeholder="密码（至少 8 位）" autocomplete="current-password" /></div>
+      <div class="actions">
+        <button id="btn-login">登录</button>
+        <button id="btn-register" class="ghost">注册</button>
+      </div>
+      <div id="auth-msg" class="msg"></div>
+    </div>
+  </section>
+
+  <!-- 文件管理 -->
+  <section id="app" class="hidden">
+    <header>
+      <h2>Move Home</h2>
+      <div><span id="who"></span> <button id="btn-logout" class="ghost">退出</button></div>
+    </header>
+    <main>
+      <div class="toolbar">
+        <div class="crumbs" id="crumbs"></div>
+        <button id="btn-new-folder" class="ghost">新建文件夹</button>
+        <button id="btn-upload">上传文件</button>
+        <input id="file-input" type="file" multiple class="hidden" />
+      </div>
+      <div class="drop" id="drop">拖拽文件到这里上传（支持图片 / 视频 / 音频，单文件 ≤ 25MB）</div>
+      <div id="uploads"></div>
+      <table><tbody id="list"></tbody></table>
+    </main>
+  </section>
+
+  <div id="preview" class="hidden"></div>
+
+  <script>
+    const MAX_SIZE = 25 * 1024 * 1024;
+    const $ = (id) => document.getElementById(id);
+    let currentDir = '';
+
+    async function api(path, { method = 'GET', body } = {}) {
+      const res = await fetch(path, {
+        method,
+        credentials: 'same-origin',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && path !== '/api/auth/login') showAuth();
+      if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
+      return data;
+    }
+
+    // ---------- 登录 ----------
+    function showAuth() { $('app').classList.add('hidden'); $('auth').classList.remove('hidden'); }
+    function showApp(name) {
+      $('auth').classList.add('hidden'); $('app').classList.remove('hidden');
+      $('who').textContent = name;
+      loadDir('');
+    }
+    async function submitAuth(kind) {
+      $('auth-msg').textContent = '';
+      try {
+        const r = await api(`/api/auth/${kind}`, { method: 'POST', body: { username: $('u').value, password: $('p').value } });
+        $('p').value = '';
+        showApp(r.username);
+      } catch (e) { $('auth-msg').textContent = e.message; }
+    }
+    $('btn-login').onclick = () => submitAuth('login');
+    $('btn-register').onclick = () => submitAuth('register');
+    $('p').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth('login'); });
+    $('btn-logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }).catch(() => {}); showAuth(); };
+
+    // ---------- 列表 ----------
+    function renderCrumbs() {
+      const box = $('crumbs'); box.textContent = '';
+      const root = document.createElement('a'); root.textContent = '全部文件'; root.onclick = () => loadDir('');
+      box.append(root);
+      let acc = '';
+      for (const seg of currentDir.split('/').filter(Boolean)) {
+        acc += seg + '/';
+        const target = acc;
+        box.append(' / ');
+        const a = document.createElement('a'); a.textContent = seg; a.onclick = () => loadDir(target);
+        box.append(a);
+      }
+    }
+
+    function row(nameEl, ops) {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.className = 'name'; td1.append(nameEl);
+      const td2 = document.createElement('td'); td2.className = 'ops'; td2.append(...ops);
+      tr.append(td1, td2);
+      return tr;
+    }
+    function btn(text, cls, fn) {
+      const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; return b;
+    }
+    const fileUrl = (key, inline) => `/api/files/download?key=${encodeURIComponent(key)}${inline ? '&inline=1' : ''}`;
+    const previewType = (name) => {
+      const ext = name.split('.').pop().toLowerCase();
+      if (['jpg','jpeg','png','gif','webp','bmp','avif'].includes(ext)) return 'img';
+      if (['mp4','webm','mov'].includes(ext)) return 'video';
+      if (['mp3','wav','ogg','m4a','flac','aac'].includes(ext)) return 'audio';
+      return null;
+    };
+
+    async function loadDir(dir) {
+      currentDir = dir;
+      renderCrumbs();
+      const list = $('list'); list.textContent = '';
+      try {
+        const data = await api(`/api/files/list?dir=${encodeURIComponent(dir)}`);
+        for (const f of data.folders) {
+          const name = f.slice(dir.length).replace(/\/$/, '');
+          const a = document.createElement('a'); a.className = 'link'; a.textContent = '📁 ' + name; a.onclick = () => loadDir(f);
+          list.append(row(a, []));
+        }
+        for (const f of data.files) {
+          const name = f.key.slice(dir.length);
+          if (!name) continue;
+          const type = previewType(name);
+          const nameEl = document.createElement(type ? 'a' : 'span');
+          nameEl.textContent = name;
+          if (type) { nameEl.className = 'link'; nameEl.onclick = () => openPreview(f.key, type); }
+          const ops = [];
+          const dl = btn('下载', 'ghost', () => { location.href = fileUrl(f.key, false); });
+          const del = btn('删除', 'danger', async () => {
+            if (!confirm(`确定删除 ${name} ？`)) return;
+            try { await api('/api/files/delete', { method: 'POST', body: { key: f.key } }); loadDir(currentDir); }
+            catch (e) { alert(e.message); }
+          });
+          ops.push(dl, del);
+          list.append(row(nameEl, ops));
+        }
+        if (!list.children.length) {
+          const tr = document.createElement('tr'); const td = document.createElement('td');
+          td.className = 'empty'; td.colSpan = 2; td.textContent = '这里还没有文件'; tr.append(td); list.append(tr);
+        }
+      } catch (e) { alert(e.message); }
+    }
+
+    $('btn-new-folder').onclick = () => {
+      const name = prompt('文件夹名称');
+      if (!name) return;
+      if (/[\/\\]/.test(name.trim())) return alert('名称不能包含 / 或 \\');
+      // Blob 没有空目录概念：进入新目录后上传文件即自动创建
+      loadDir(currentDir + name.trim() + '/');
+    };
+
+    // ---------- 预览 ----------
+    function openPreview(key, type) {
+      const p = $('preview'); p.textContent = '';
+      const box = document.createElement('div'); box.className = 'box';
+      const bar = document.createElement('div'); bar.className = 'bar';
+      bar.append(btn('关闭', 'ghost', closePreview));
+      const el = document.createElement(type === 'img' ? 'img' : type);
+      el.src = fileUrl(key, true);
+      if (type !== 'img') el.controls = true;
+      if (type === 'audio') el.autoplay = true;
+      box.append(bar, el); p.append(box); p.classList.remove('hidden');
+    }
+    function closePreview() { const p = $('preview'); p.classList.add('hidden'); p.textContent = ''; }
+    $('preview').addEventListener('click', (e) => { if (e.target.id === 'preview') closePreview(); });
+
+    // ---------- 上传 ----------
+    async function uploadOne(file) {
+      const line = document.createElement('div'); line.className = 'up';
+      const label = document.createElement('span'); label.textContent = file.name;
+      const bar = document.createElement('progress'); bar.max = 100; bar.value = 0;
+      const status = document.createElement('span');
+      line.append(label, bar, status); $('uploads').append(line);
+      try {
+        if (file.size > MAX_SIZE) throw new Error('超过 25MB');
+        const { url, contentType } = await api('/api/files/upload-url', {
+          method: 'POST', body: { dir: currentDir, name: file.name, size: file.size },
+        });
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', url);
+          xhr.setRequestHeader('Content-Type', contentType);
+          xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.value = (e.loaded / e.total) * 100; };
+          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`上传失败 (${xhr.status})`)));
+          xhr.onerror = () => reject(new Error('网络错误'));
+          xhr.send(file);
+        });
+        bar.value = 100; status.textContent = '完成';
+        setTimeout(() => line.remove(), 2000);
+      } catch (e) { status.textContent = '失败：' + e.message; status.style.color = 'var(--danger)'; }
+    }
+    async function uploadFiles(files) {
+      for (const f of files) await uploadOne(f);
+      loadDir(currentDir);
+    }
+    $('btn-upload').onclick = () => $('file-input').click();
+    $('file-input').onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ''; };
+    const drop = $('drop');
+    ['dragover', 'dragenter'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', (e) => uploadFiles([...e.dataTransfer.files]));
+
+    // ---------- 启动 ----------
+    api('/api/auth/me').then((r) => (r.username ? showApp(r.username) : showAuth())).catch(showAuth);
+  </script>
+</body>
+</html>
