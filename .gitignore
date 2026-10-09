@@ -5,3 +5,5 @@ dist/
 .edgeone/
 .DS_Store
 .history
+.browser-tmp
+.layout-browser

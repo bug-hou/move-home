@@ -33,13 +33,27 @@ const USERNAME_RULES = [
   { pattern: /^[a-zA-Z0-9_]{3,20}$/, message: '3-20 位字母、数字或下划线' },
 ];
 
+function getPasswordStrength(password) {
+  if (!password) return { level: 0, label: '尚未输入', tip: '建议使用 12 位以上，并混合字母、数字和符号' };
+  if (password.length < 8) return { level: 1, label: '较弱', tip: '密码至少需要 8 位' };
+
+  const types = [/[a-z]/, /[A-Z]/, /\d/, /[^a-zA-Z\d]/].filter((re) => re.test(password)).length;
+  if (password.length >= 12 && types >= 3) {
+    return { level: 3, label: '较强', tip: '请避免使用常见密码或在其他网站重复使用' };
+  }
+  if (types >= 2) return { level: 2, label: '中等', tip: '增加长度和字符类型可以进一步提升强度' };
+  return { level: 1, label: '较弱', tip: '尝试混合字母、数字和符号' };
+}
+
 export default function AuthPage({ onSuccess }) {
   const [scene] = useState(() => SCENES[Math.floor(Math.random() * SCENES.length)]);
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form] = Form.useForm();
+  const password = Form.useWatch('password', form);
   const isRegister = mode === 'register';
+  const strength = getPasswordStrength(password);
 
   const submit = async (values) => {
     setError('');
@@ -65,7 +79,7 @@ export default function AuthPage({ onSuccess }) {
   };
 
   return (
-    <div className="auth-page" style={{ '--auth-scene-image': `url("${scene.image}")` }}>
+    <div className={`auth-page${isRegister ? ' auth-page--register' : ''}`} style={{ '--auth-scene-image': `url("${scene.image}")` }}>
       <div className="auth-shell">
         <aside className="auth-visual">
           <div className="auth-visual-top">
@@ -84,13 +98,15 @@ export default function AuthPage({ onSuccess }) {
 
         <main className="auth-form-side">
           <div className="auth-form-content">
-            <div className="auth-eyebrow">YOUR SPACE, YOUR STORY <span>✳</span></div>
-            <h1>{isRegister ? '开启你的旅途档案' : '欢迎回来'}</h1>
-            <p className="auth-subtitle">
-              {isRegister ? '创建账号，让每一次出发都有迹可循。' : '那些美好的旅途瞬间，都在这里等你。'}
-            </p>
+            <div className="auth-intro" key={mode}>
+              <div className="auth-eyebrow">YOUR SPACE, YOUR STORY <span>✳</span></div>
+              <h1>{isRegister ? '开启你的旅途档案' : '欢迎回来'}</h1>
+              <p className="auth-subtitle">
+                {isRegister ? '创建账号，让每一次出发都有迹可循。' : '那些美好的旅途瞬间，都在这里等你。'}
+              </p>
+            </div>
 
-            <div className="auth-switch" aria-label="登录或注册">
+            <div className={`auth-switch${isRegister ? ' auth-switch--register' : ''}`} aria-label="登录或注册">
               <button type="button" className={isRegister ? '' : 'active'} aria-pressed={!isRegister} onClick={() => changeMode('login')}>登录</button>
               <button type="button" className={isRegister ? 'active' : ''} aria-pressed={isRegister} onClick={() => changeMode('register')}>注册</button>
             </div>
@@ -116,32 +132,52 @@ export default function AuthPage({ onSuccess }) {
                   prefix={<LockOutlined />}
                   placeholder={isRegister ? '至少 8 位密码' : '请输入密码'}
                   autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  aria-describedby={isRegister ? 'password-strength-hint' : undefined}
                   size="large"
                 />
               </Form.Item>
-              {isRegister && (
-                <Form.Item
-                  name="confirm"
-                  label="确认密码"
-                  dependencies={['password']}
-                  rules={[
-                    { required: true, message: '请再次输入密码' },
-                    ({ getFieldValue }) => ({
-                      validator: (_, v) =>
-                        !v || getFieldValue('password') === v
-                          ? Promise.resolve()
-                          : Promise.reject(new Error('两次输入的密码不一致')),
-                    }),
-                  ]}
-                >
-                  <Input.Password
-                    prefix={<LockOutlined />}
-                    placeholder="再次输入密码"
-                    autoComplete="new-password"
-                    size="large"
-                  />
-                </Form.Item>
-              )}
+              <div
+                className={`auth-register-fields${isRegister ? ' auth-register-fields--open' : ''}`}
+                inert={!isRegister}
+                aria-hidden={!isRegister}
+              >
+                <div className="auth-register-fields-inner">
+                  <div className={`auth-strength auth-strength--${strength.level}`}>
+                    <div className="auth-strength-heading">
+                      <span>密码强度</span>
+                      <span role="status" aria-live="polite">{strength.label}</span>
+                    </div>
+                    <div className="auth-strength-bars" aria-hidden="true">
+                      {[1, 2, 3].map((step) => (
+                        <span className={step <= strength.level ? 'active' : ''} key={step} />
+                      ))}
+                    </div>
+                    <p id="password-strength-hint">{strength.tip} · 仅供参考</p>
+                  </div>
+                  <Form.Item
+                    name="confirm"
+                    label="确认密码"
+                    dependencies={['password']}
+                    rules={isRegister ? [
+                      { required: true, message: '请再次输入密码' },
+                      ({ getFieldValue }) => ({
+                        validator: (_, v) =>
+                          !v || getFieldValue('password') === v
+                            ? Promise.resolve()
+                            : Promise.reject(new Error('两次输入的密码不一致')),
+                      }),
+                    ] : []}
+                  >
+                    <Input.Password
+                      prefix={<LockOutlined />}
+                      placeholder="再次输入密码"
+                      autoComplete="new-password"
+                      disabled={!isRegister}
+                      size="large"
+                    />
+                  </Form.Item>
+                </div>
+              </div>
 
               {error && <Alert className="auth-error" type="error" message={error} showIcon />}
 
@@ -156,7 +192,6 @@ export default function AuthPage({ onSuccess }) {
                 {isRegister ? '返回登录' : '创建账号'} <ArrowRightOutlined />
               </button>
             </p>
-            {isRegister && <p className="auth-register-note">首次注册后默认关闭新账号注册，已有账号请直接登录。</p>}
           </div>
           <div className="auth-form-footer">为你的旅途素材，留一处安心的归档地。</div>
         </main>

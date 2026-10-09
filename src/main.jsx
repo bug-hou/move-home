@@ -12,8 +12,14 @@ createRoot(document.getElementById('root')).render(
       theme={{
         algorithm: theme.defaultAlgorithm,
         token: {
-          colorPrimary: '#18181b',
-          colorInfo: '#18181b',
+          colorPrimary: '#25443f',
+          colorInfo: '#25443f',
+          colorLink: '#315d52',
+          colorLinkHover: '#1b3731',
+          colorText: '#253e37',
+          colorTextSecondary: '#526760',
+          colorBorder: '#dce5dc',
+          colorPrimaryBg: '#edf4ef',
           borderRadius: 8,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
