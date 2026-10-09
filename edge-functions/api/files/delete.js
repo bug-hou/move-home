@@ -1,5 +1,6 @@
 import {
   FOLDER_MARK,
+  addUsage,
   cleanDir,
   cleanKey,
   deleteChunks,
@@ -14,12 +15,15 @@ import { route } from '../../../lib/route.js';
 
 const MAX_ITEMS = 100;
 
+// 返回释放的字节数
 async function deleteFile(store, username, rawKey) {
   const key = cleanKey(rawKey);
   const manifest = await getManifest(store, username, key);
   // 先删清单（文件立刻从列表消失），再清理分片
   await store.delete(treePrefix(username) + key);
-  if (manifest) await deleteChunks(store, username, manifest);
+  if (!manifest) return 0;
+  await deleteChunks(store, username, manifest);
+  return manifest.size ?? 0;
 }
 
 async function deleteFolder(store, username, rawDir) {
@@ -32,7 +36,13 @@ async function deleteFolder(store, username, rawDir) {
     key.split('/').pop() === FOLDER_MARK ? null : getManifest(store, username, key),
   );
   await mapLimit(keys, 8, (key) => store.delete(base + key));
-  for (const m of manifests) if (m) await deleteChunks(store, username, m);
+  let freed = 0;
+  for (const m of manifests) {
+    if (!m) continue;
+    await deleteChunks(store, username, m);
+    freed += m.size ?? 0;
+  }
+  return freed;
 }
 
 // POST /api/files/delete  { items: [{ type: 'file'|'folder', key }] }
@@ -45,10 +55,11 @@ export const onRequestPost = route(async ({ request }, username) => {
   const store = getBlobStore();
   const failed = [];
   let ok = 0;
+  let freed = 0;
   for (const item of items) {
     try {
-      if (item?.type === 'folder') await deleteFolder(store, username, item.key);
-      else if (item?.type === 'file') await deleteFile(store, username, item.key);
+      if (item?.type === 'folder') freed += await deleteFolder(store, username, item.key);
+      else if (item?.type === 'file') freed += await deleteFile(store, username, item.key);
       else throw new HttpError(400, '类型不合法');
       ok += 1;
     } catch (err) {
@@ -56,5 +67,6 @@ export const onRequestPost = route(async ({ request }, username) => {
       failed.push({ key: item?.key, error: err instanceof HttpError ? err.message : '删除失败' });
     }
   }
+  await addUsage(username, -freed);
   return json({ ok, failed });
 });

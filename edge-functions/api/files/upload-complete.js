@@ -1,6 +1,7 @@
 import { CHUNK_SIZE, MAX_FILE_SIZE } from '../../../lib/config.js';
 import {
   ID_RE,
+  addUsage,
   chunkKey,
   cleanDir,
   cleanFileName,
@@ -56,5 +57,6 @@ export const onRequestPost = route(async ({ request }, username) => {
     mime: guessMime(name),
     mtime: Date.now(),
   });
+  await addUsage(username, size);
   return json({ key: dir + name, name });
 });

@@ -7,7 +7,7 @@
 ```
 index.html / src/             前端（Vite + React + Ant Design）
 edge-functions/api/auth/      register / login / logout / logout-all / me
-edge-functions/api/files/     list / mkdir / move / delete / download
+edge-functions/api/files/     list / mkdir / move / delete / download / usage
                               upload-init / upload-url / upload-complete / upload-abort
 lib/                          公共模块（配置、鉴权、路径校验、分片与目录树）
 ```
@@ -24,6 +24,15 @@ lib/                          公共模块（配置、鉴权、路径校验、�
 - **下载/预览**：函数校验登录后，按清单把分片拼成一个流返回，支持 `Range`（视频可拖动进度条）和 `ETag`（未变化返回 304）；仅图片/视频/音频允许 inline，其余强制下载。
 - **隔离**：Blob key 由服务端强制加用户前缀，路径禁止 `..` 和保留名 `.folder`。
 - KV 最终一致（其他节点最长 60 秒），退出登录后的会话在其他节点可能短暂仍有效。
+
+## 界面结构
+
+- **左侧菜单**：固定项「上传文件」「全部文件」，其下是动态的「我的文件夹」，即根目录下的每个文件夹都是一个菜单项（点 + 新建，悬停菜单项可重命名/删除）；底部显示存储空间。
+- **顶栏**：搜索当前文件夹、账号菜单（退出登录 / 退出所有设备）。
+- **内容区**：面包屑 + 排序 + 列表/网格切换 + 新建文件夹；选中文件后出现批量操作条。
+- **上传**：不占内容区。点击「上传文件」或把文件拖到页面任意位置，进度显示在右下角浮动面板。
+- **移动端（≤900px）**：左侧菜单变为抽屉，由顶栏左上角按钮打开。
+- **存储空间**：已用空间由 KV 计数器（`usage_<user>`）维护，上传/删除时增减；配额见 `lib/config.js` 的 `STORAGE_QUOTA`。计数非原子，出现偏差时点击存储空间旁的刷新按钮会遍历清单重新计算（最多 2000 个文件）。
 
 ## 部署步骤
 

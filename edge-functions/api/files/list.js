@@ -4,7 +4,9 @@ import { route } from '../../../lib/route.js';
 
 // GET /api/files/list?dir=photos/2024/
 export const onRequestGet = route(async ({ request }, username) => {
-  const dir = cleanDir(new URL(request.url).searchParams.get('dir'));
+  const params = new URL(request.url).searchParams;
+  const dir = cleanDir(params.get('dir'));
+  const foldersOnly = params.get('folders') === '1';
   const base = treePrefix(username);
 
   const store = getBlobStore();
@@ -18,6 +20,9 @@ export const onRequestGet = route(async ({ request }, username) => {
     const key = d.slice(base.length);
     return { key, name: key.slice(dir.length).replace(/\/$/, '') };
   });
+
+  // 侧边栏只需要文件夹，跳过读取每个文件的清单
+  if (foldersOnly) return json({ dir, folders, files: [] });
 
   const fileKeys = (blobs || [])
     .map((b) => b.key.slice(base.length))

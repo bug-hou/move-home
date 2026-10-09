@@ -1,49 +1,46 @@
 import {
   AppstoreOutlined,
-  CloseOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
   EditOutlined,
   ExportOutlined,
-  FileOutlined,
   FolderAddOutlined,
   FolderFilled,
   LeftOutlined,
   LogoutOutlined,
+  MenuOutlined,
   MoreOutlined,
   PictureOutlined,
-  PlayCircleOutlined,
   RightOutlined,
   SearchOutlined,
-  SoundOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import {
   App as AntApp,
+  Avatar,
   Breadcrumb,
   Button,
   Checkbox,
+  Drawer,
   Dropdown,
   Empty,
   Input,
   Modal,
-  Progress,
   Segmented,
   Select,
   Space,
   Spin,
   Table,
-  Typography,
-  Upload,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MAX_SIZE, api, fileUrl, formatSize, formatTime, previewType, uploadFile } from '../api.js';
-import Brand from '../components/Brand.jsx';
+import FileGlyph, { FileThumbnail } from '../components/FileGlyph.jsx';
 import MoveModal from '../components/MoveModal.jsx';
+import Sidebar from '../components/Sidebar.jsx';
+import UploadPanel from '../components/UploadPanel.jsx';
 
-const ICONS = { img: <PictureOutlined />, video: <PlayCircleOutlined />, audio: <SoundOutlined /> };
 const FILE_LABELS = { img: '照片', video: '视频', audio: '音频' };
 
 const SORTS = [
@@ -75,14 +72,8 @@ const readView = () => {
   }
 };
 
-function FileGlyph({ type, large }) {
-  const kind = type === 'folder' ? 'folder' : previewType(type) || 'file';
-  return (
-    <span className={`file-glyph file-glyph--${kind}${large ? ' file-glyph--large' : ''}`} aria-hidden="true">
-      {kind === 'folder' ? <FolderFilled /> : ICONS[kind] || <FileOutlined />}
-    </span>
-  );
-}
+// 'a/b/' -> 'a/'，'a/b.jpg' -> 'a/'
+const parentOf = (key) => key.replace(/[^/]+\/?$/, '');
 
 function triggerDownload(key) {
   const a = document.createElement('a');
@@ -96,10 +87,14 @@ function triggerDownload(key) {
 const itemMeta = (r) =>
   r.type === 'folder' ? '文件夹' : [formatSize(r.size), formatTime(r.mtime)].filter(Boolean).join(' · ');
 
+let uidSeed = 0;
+
 export default function FilesPage({ username, onLogout }) {
   const { message, modal } = AntApp.useApp();
   const [dir, setDir] = useState('');
   const [items, setItems] = useState([]);
+  const [rootFolders, setRootFolders] = useState([]);
+  const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploads, setUploads] = useState([]);
   const [previewKey, setPreviewKey] = useState(null);
@@ -107,13 +102,16 @@ export default function FilesPage({ username, onLogout }) {
   const [sort, setSort] = useState('name_asc');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState([]);
-  const [folderOpen, setFolderOpen] = useState(false);
+  const [folderParent, setFolderParent] = useState(null);
   const [folderName, setFolderName] = useState('');
   const [renaming, setRenaming] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [moving, setMoving] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const queue = useRef({ chain: Promise.resolve(), pending: 0 });
+  const fileInput = useRef(null);
   const dirRef = useRef(dir);
   const loadSeq = useRef(0);
 
@@ -138,11 +136,49 @@ export default function FilesPage({ username, onLogout }) {
     [message],
   );
 
+  const loadRoot = useCallback(async () => {
+    try {
+      const data = await api('/api/files/list?dir=&folders=1');
+      setRootFolders([...data.folders].sort((a, b) => collator.compare(a.name, b.name)));
+    } catch {
+      // 侧边栏加载失败不打扰用户，主列表会给出错误提示
+    }
+  }, []);
+
+  const loadUsage = useCallback(async (recalc = false) => {
+    try {
+      setUsage(await api(`/api/files/usage${recalc ? '?recalc=1' : ''}`));
+    } catch (e) {
+      if (recalc) message.error(e.message);
+    }
+  }, [message]);
+
   useEffect(() => {
     dirRef.current = dir;
     setSearch('');
     load(dir);
   }, [dir, load]);
+
+  useEffect(() => {
+    loadRoot();
+    loadUsage();
+  }, [loadRoot, loadUsage]);
+
+  // 变更之后统一刷新：当前目录 + 侧边栏 + 存储空间；当前目录被删除/改名时回到根目录
+  const refresh = useCallback(
+    (gone = []) => {
+      loadRoot();
+      loadUsage();
+      if (gone.some((k) => dirRef.current.startsWith(k))) setDir('');
+      else load(dirRef.current);
+    },
+    [load, loadRoot, loadUsage],
+  );
+
+  const navigate = (target) => {
+    setDir(target);
+    setDrawerOpen(false);
+  };
 
   const changeView = (v) => {
     setView(v);
@@ -188,16 +224,19 @@ export default function FilesPage({ username, onLogout }) {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
+        let gone = [];
         try {
           const res = await api('/api/files/delete', {
             method: 'POST',
             body: { items: targets.map((t) => ({ type: t.type, key: t.key })) },
           });
+          const failedKeys = new Set(res.failed.map((f) => f.key));
+          gone = targets.filter((t) => t.type === 'folder' && !failedKeys.has(t.key)).map((t) => t.key);
           reportBatch(res, '已删除');
         } catch (e) {
           message.error(e.message);
         }
-        load(dirRef.current);
+        refresh(gone);
       },
     });
   };
@@ -211,11 +250,11 @@ export default function FilesPage({ username, onLogout }) {
     }
     setBusy(true);
     try {
-      await api('/api/files/mkdir', { method: 'POST', body: { dir, name } });
-      setFolderOpen(false);
+      await api('/api/files/mkdir', { method: 'POST', body: { dir: folderParent, name } });
+      setFolderParent(null);
       setFolderName('');
       message.success('文件夹已创建');
-      load(dir);
+      refresh();
     } catch (e) {
       message.error(e.message);
     } finally {
@@ -223,9 +262,16 @@ export default function FilesPage({ username, onLogout }) {
     }
   };
 
+  const openCreateFolder = (parent) => {
+    setFolderName('');
+    setFolderParent(parent);
+    setDrawerOpen(false);
+  };
+
   const openRename = (item) => {
     setRenaming(item);
     setRenameValue(item.name);
+    setDrawerOpen(false);
   };
 
   const submitRename = async () => {
@@ -240,18 +286,24 @@ export default function FilesPage({ username, onLogout }) {
       return;
     }
     const isFolder = renaming.type === 'folder';
+    const to = `${parentOf(renaming.key)}${name}${isFolder ? '/' : ''}`;
     setBusy(true);
     try {
       const res = await api('/api/files/move', {
         method: 'POST',
-        body: {
-          moves: [{ type: renaming.type, from: renaming.key, to: `${dir}${name}${isFolder ? '/' : ''}` }],
-        },
+        body: { moves: [{ type: renaming.type, from: renaming.key, to }] },
       });
       if (res.failed.length) throw new Error(res.failed[0].error);
+      // 正在浏览被改名的文件夹（或其子目录）时，跟随新路径
+      if (isFolder && dirRef.current.startsWith(renaming.key)) {
+        setDir(to + dirRef.current.slice(renaming.key.length));
+        loadRoot();
+        loadUsage();
+      } else {
+        refresh();
+      }
       setRenaming(null);
       message.success('已重命名');
-      load(dir);
     } catch (e) {
       message.error(e.message);
     } finally {
@@ -274,10 +326,21 @@ export default function FilesPage({ username, onLogout }) {
       });
       reportBatch(res, '已移动');
       setMoving(null);
-      load(dirRef.current);
+      refresh();
     } catch (e) {
       message.error(e.message);
     }
+  };
+
+  const onFolderAction = (folder, action) => {
+    const item = { type: 'folder', key: folder.key, name: folder.name };
+    if (action === 'rename') openRename(item);
+    else if (action === 'delete') remove([item]);
+  };
+
+  const recalcUsage = async () => {
+    await loadUsage(true);
+    message.success('已重新计算');
   };
 
   const openItem = (item) => {
@@ -316,39 +379,93 @@ export default function FilesPage({ username, onLogout }) {
 
   // ---------- 上传 ----------
 
-  const patchUpload = (uid, patch) =>
-    setUploads((list) => list.map((u) => (u.uid === uid ? { ...u, ...patch } : u)));
+  const patchUpload = useCallback(
+    (uid, patch) => setUploads((list) => list.map((u) => (u.uid === uid ? { ...u, ...patch } : u))),
+    [],
+  );
 
-  const uploadOne = async (file, targetDir) => {
-    const uid = file.uid;
-    setUploads((list) => [...list, { uid, name: file.name, status: 'uploading', percent: 0 }]);
+  const uploadOne = async (entry, file, targetDir) => {
+    patchUpload(entry.uid, { status: 'uploading' });
     try {
+      if (file.size <= 0) throw new Error('不支持空文件或文件夹');
       if (file.size > MAX_SIZE) throw new Error(`超过 ${MAX_SIZE / 1024 / 1024}MB`);
-      await uploadFile(file, targetDir, (percent) => patchUpload(uid, { percent }));
-      patchUpload(uid, { status: 'done', percent: 100 });
-      setTimeout(() => setUploads((list) => list.filter((u) => u.uid !== uid)), 2000);
+      await uploadFile(file, targetDir, (percent) => patchUpload(entry.uid, { percent }));
+      patchUpload(entry.uid, { status: 'done', percent: 100 });
     } catch (e) {
-      patchUpload(uid, { status: 'error', error: e.message });
+      patchUpload(entry.uid, { status: 'error', error: e.message });
     }
   };
 
   // 逐个文件上传（单个文件内部分片并发），全部结束后刷新一次
-  const beforeUpload = (file) => {
+  const enqueueFiles = (fileList) => {
+    const files = [...fileList];
+    if (!files.length) return;
     const targetDir = dirRef.current;
     const q = queue.current;
-    q.pending += 1;
-    q.chain = q.chain.then(async () => {
-      await uploadOne(file, targetDir);
-      q.pending -= 1;
-      if (q.pending === 0 && dirRef.current === targetDir) load(targetDir);
-    });
-    return false;
+    for (const file of files) {
+      const entry = { uid: `${Date.now()}-${uidSeed++}`, name: file.name, status: 'waiting', percent: 0 };
+      setUploads((list) => [...list, entry]);
+      q.pending += 1;
+      q.chain = q.chain.then(async () => {
+        await uploadOne(entry, file, targetDir);
+        q.pending -= 1;
+        if (q.pending === 0) {
+          loadUsage();
+          loadRoot();
+          if (dirRef.current === targetDir) load(targetDir);
+        }
+      });
+    }
   };
+
+  const pickFiles = () => {
+    setDrawerOpen(false);
+    fileInput.current?.click();
+  };
+
+  // 拖拽文件到页面任意位置即可上传
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+    const enter = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth += 1;
+      setDragging(true);
+    };
+    const over = (e) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const leave = (e) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const drop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      enqueueFiles(e.dataTransfer.files);
+    };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+    };
+    // enqueueFiles 只依赖 ref 与稳定的 setState，无需随渲染重新绑定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- 渲染 ----------
 
   const crumbs = [
-    { title: dir ? <button type="button" className="crumb-link" onClick={() => setDir('')}>全部素材</button> : '全部素材' },
+    { title: dir ? <button type="button" className="crumb-link" onClick={() => setDir('')}>全部文件</button> : '全部文件' },
     ...dir
       .split('/')
       .filter(Boolean)
@@ -357,7 +474,6 @@ export default function FilesPage({ username, onLogout }) {
         return { title: i === arr.length - 1 ? seg : <button type="button" className="crumb-link" onClick={() => setDir(target)}>{seg}</button> };
       }),
   ];
-  const parentDir = dir.replace(/[^/]+\/$/, '');
 
   const moreButton = (item) => (
     <Dropdown menu={rowMenu(item)} trigger={['click']} placement="bottomRight">
@@ -381,267 +497,302 @@ export default function FilesPage({ username, onLogout }) {
     {
       title: '大小',
       dataIndex: 'size',
-      width: 110,
-      render: (size, r) => <span className="cell-muted">{r.type === 'folder' ? '—' : formatSize(size)}</span>,
+      width: 112,
+      align: 'right',
+      render: (size, r) => <span className="cell-muted cell-size">{r.type === 'folder' ? '—' : formatSize(size)}</span>,
     },
     {
       title: '上传时间',
       dataIndex: 'mtime',
-      width: 160,
+      width: 180,
       responsive: ['lg'],
+      align: 'center',
       render: (t, r) => <span className="cell-muted">{r.type === 'folder' ? '—' : formatTime(t)}</span>,
     },
     {
       title: '操作',
-      width: 110,
-      align: 'right',
+      width: 112,
+      align: 'center',
       render: (_, r) => (
-        <Space size={0}>
+        <div className="row-actions">
           {r.type === 'file' && (
-            <Button type="text" icon={<DownloadOutlined />} title="下载" onClick={() => triggerDownload(r.key)} />
+            <Button type="text" icon={<DownloadOutlined />} aria-label={`下载 ${r.name}`} onClick={() => triggerDownload(r.key)} />
           )}
           {moreButton(r)}
-        </Space>
+        </div>
       ),
     },
   ];
 
-  const emptyText = search ? '没有匹配的内容' : '这里还没有素材';
+  const emptyNode = (
+    <Empty
+      image={Empty.PRESENTED_IMAGE_SIMPLE}
+      description={search ? '没有匹配的内容' : dir ? '这个文件夹还是空的' : '还没有任何文件'}
+    >
+      {!search && (
+        <Space>
+          <Button type="primary" icon={<CloudUploadOutlined />} onClick={pickFiles}>上传文件</Button>
+          <Button icon={<FolderAddOutlined />} onClick={() => openCreateFolder(dir)}>新建文件夹</Button>
+        </Space>
+      )}
+    </Empty>
+  );
+
+  const sidebar = (
+    <Sidebar
+      folders={rootFolders}
+      dir={dir}
+      usage={usage}
+      onUpload={pickFiles}
+      onNavigate={navigate}
+      onCreateFolder={() => openCreateFolder('')}
+      onFolderAction={onFolderAction}
+      onRecalcUsage={recalcUsage}
+    />
+  );
+
+  const title = dir ? dir.split('/').filter(Boolean).pop() : '全部文件';
 
   return (
-    <>
-      <header className="app-header">
-        <Brand compact />
-        <Dropdown
-          trigger={['click']}
-          placement="bottomRight"
-          menu={{
-            items: [
-              { key: 'out', label: '退出登录', icon: <LogoutOutlined /> },
-              { key: 'all', label: '退出所有设备', icon: <LogoutOutlined />, danger: true },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'out') onLogout(false);
-              else {
-                modal.confirm({
-                  title: '退出所有设备？',
-                  content: '该账号在所有设备上的登录都会失效，需要重新登录。',
-                  okText: '退出所有设备',
-                  cancelText: '取消',
-                  okButtonProps: { danger: true },
-                  onOk: () => onLogout(true),
-                });
-              }
-            },
-          }}
-        >
-          <Button type="text" className="app-logout" aria-label="账号菜单">
-            <Typography.Text className="app-username">{username}</Typography.Text>
-            <DownOutlined className="app-user-caret" />
-            <LogoutOutlined className="app-logout-icon" />
-          </Button>
-        </Dropdown>
-      </header>
+    <div className="app-shell">
+      <aside className="app-sidebar">{sidebar}</aside>
+      <Drawer
+        placement="left"
+        width={288}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        closable={false}
+        styles={{ body: { padding: 0 } }}
+        className="sidebar-drawer"
+      >
+        {sidebar}
+      </Drawer>
 
-      <main className="app-main">
-        <div className="app-heading">
-          <p className="app-eyebrow">YOUR JOURNEY, SAFELY KEPT</p>
-          <h1>我的旅途素材</h1>
-          <p>把路上的好风景，留在这里。</p>
-        </div>
+      <div className="app-content">
+        <header className="topbar">
+          <Button
+            className="topbar-menu"
+            type="text"
+            icon={<MenuOutlined />}
+            aria-label="打开菜单"
+            onClick={() => setDrawerOpen(true)}
+          />
+          <Input
+            allowClear
+            className="topbar-search"
+            prefix={<SearchOutlined />}
+            placeholder={dir ? `在「${title}」中搜索` : '搜索当前文件夹'}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            menu={{
+              items: [
+                { key: 'out', label: '退出登录', icon: <LogoutOutlined /> },
+                { key: 'all', label: '退出所有设备', icon: <LogoutOutlined />, danger: true },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'out') onLogout(false);
+                else {
+                  modal.confirm({
+                    title: '退出所有设备？',
+                    content: '该账号在所有设备上的登录都会失效，需要重新登录。',
+                    okText: '退出所有设备',
+                    cancelText: '取消',
+                    okButtonProps: { danger: true },
+                    onOk: () => onLogout(true),
+                  });
+                }
+              },
+            }}
+          >
+            <Button type="text" className="topbar-account" aria-label={`账号菜单：${username}`}>
+              <Avatar size={34} className="topbar-avatar">{username.slice(0, 1).toUpperCase()}</Avatar>
+              <span className="topbar-account-details">
+                <span className="topbar-username">{username}</span>
+                <span className="topbar-account-label">个人空间</span>
+              </span>
+              <DownOutlined className="topbar-caret" />
+            </Button>
+          </Dropdown>
+        </header>
 
-        <div className="upload-zone">
-          <Upload.Dragger multiple showUploadList={false} beforeUpload={beforeUpload} openFileDialogOnClick>
-            <p className="ant-upload-drag-icon"><CloudUploadOutlined /></p>
-            <p className="ant-upload-text"><span className="upload-desktop-text">点击或拖拽文件，收藏这一程的风景</span><span className="upload-mobile-text">点击上传旅途素材</span></p>
-            <p className="ant-upload-hint">单文件不超过 {MAX_SIZE / 1024 / 1024}MB，大文件自动分片上传 · 图片、视频和音频可预览</p>
-          </Upload.Dragger>
-          {uploads.length > 0 && (
-            <div className="upload-list">
-              {uploads.map((u) => (
-                <div className="upload-item" key={u.uid}>
-                  <div className="upload-item-head">
-                    <span className="file-name" title={u.name}>{u.name}</span>
-                    {u.status === 'error' && (
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CloseOutlined />}
-                        aria-label="移除"
-                        onClick={() => setUploads((list) => list.filter((x) => x.uid !== u.uid))}
-                      />
-                    )}
-                  </div>
-                  <Progress
-                    percent={Math.round(u.percent)}
-                    size="small"
-                    status={u.status === 'error' ? 'exception' : u.status === 'done' ? 'success' : 'active'}
-                  />
-                  {u.status === 'error' && <small className="upload-error">{u.error}</small>}
-                </div>
-              ))}
+        <main className="app-main">
+          <div className="page-head">
+            <div className="page-path">
+              {dir && (
+                <Button type="text" icon={<LeftOutlined />} aria-label="返回上一级" onClick={() => setDir(parentOf(dir))} />
+              )}
+              <div className="crumbs-scroll"><Breadcrumb items={crumbs} /></div>
+            </div>
+            <div className="page-tools">
+              <Select
+                className="tool-sort"
+                value={sort}
+                onChange={setSort}
+                options={SORTS.map(({ value, label }) => ({ value, label }))}
+                aria-label="排序方式"
+              />
+              <Segmented
+                value={view}
+                onChange={changeView}
+                options={[
+                  { value: 'list', icon: <UnorderedListOutlined />, label: <span className="sr-only">列表视图</span> },
+                  { value: 'grid', icon: <AppstoreOutlined />, label: <span className="sr-only">网格视图</span> },
+                ]}
+              />
+              <Button icon={<FolderAddOutlined />} onClick={() => openCreateFolder(dir)}>
+                <span className="tool-label">新建文件夹</span>
+              </Button>
+            </div>
+          </div>
+
+          {selected.length > 0 && (
+            <div className="selection-bar" role="toolbar" aria-label="批量操作">
+              <Checkbox checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>
+                已选 {selected.length} 项
+              </Checkbox>
+              <Space size={4}>
+                <Button icon={<ExportOutlined />} onClick={() => setMoving(selectedItems)}>移动到</Button>
+                <Button danger icon={<DeleteOutlined />} onClick={() => remove(selectedItems)}>删除</Button>
+                <Button type="text" onClick={() => setSelected([])}>取消选择</Button>
+              </Space>
             </div>
           )}
-        </div>
 
-        <div className="toolbar">
-          <div className="toolbar-path">
-            {dir && (
-              <Button type="text" icon={<LeftOutlined />} aria-label="返回上一级" onClick={() => setDir(parentDir)} />
-            )}
-            <div className="crumbs-scroll"><Breadcrumb items={crumbs} /></div>
-          </div>
-          <div className="toolbar-actions">
-            <Input
-              allowClear
-              className="toolbar-search"
-              prefix={<SearchOutlined />}
-              placeholder="搜索当前文件夹"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <Select
-              className="toolbar-sort"
-              value={sort}
-              onChange={setSort}
-              options={SORTS.map(({ value, label }) => ({ value, label }))}
-              aria-label="排序方式"
-            />
-            <Segmented
-              value={view}
-              onChange={changeView}
-              options={[
-                { value: 'list', icon: <UnorderedListOutlined />, label: <span className="sr-only">列表视图</span> },
-                { value: 'grid', icon: <AppstoreOutlined />, label: <span className="sr-only">网格视图</span> },
-              ]}
-            />
-            <Button className="new-folder-btn" icon={<FolderAddOutlined />} onClick={() => setFolderOpen(true)}>
-              新建文件夹
-            </Button>
-          </div>
-        </div>
-
-        {selected.length > 0 && (
-          <div className="selection-bar" role="toolbar" aria-label="批量操作">
-            <Checkbox checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>
-              已选 {selected.length} 项
-            </Checkbox>
-            <Space size={4}>
-              <Button icon={<ExportOutlined />} onClick={() => setMoving(selectedItems)}>移动到</Button>
-              <Button danger icon={<DeleteOutlined />} onClick={() => remove(selectedItems)}>删除</Button>
-              <Button type="text" onClick={() => setSelected([])}>取消选择</Button>
-            </Space>
-          </div>
-        )}
-
-        <section className="files-section" aria-label="素材列表">
-          <div className="files-section-heading">
-            <h2>素材列表</h2>
-            <span>{visible.length} 项</span>
-            {view === 'grid' && visible.length > 0 && selected.length === 0 && (
-              <Checkbox className="grid-select-all" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>
-                全选
-              </Checkbox>
-            )}
-          </div>
-
-          {view === 'grid' ? (
-            <Spin spinning={loading}>
-              {visible.length === 0 ? (
-                <div className="panel"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} /></div>
-              ) : (
-                <div className="file-grid">
-                  {visible.map((r) => {
-                    const kind = r.type === 'folder' ? 'folder' : previewType(r.name);
-                    const checked = selected.includes(r.key);
-                    return (
-                      <div className={`grid-card${checked ? ' is-selected' : ''}`} key={r.key}>
-                        <Checkbox
-                          className="grid-check"
-                          checked={checked}
-                          aria-label={`选择 ${r.name}`}
-                          onChange={(e) => toggleSelect(r.key, e.target.checked)}
-                        />
-                        <div className="grid-more">{moreButton(r)}</div>
-                        <button type="button" className="grid-thumb" onClick={() => openItem(r)} aria-label={r.name}>
-                          {kind === 'img' ? (
-                            <img src={fileUrl(r.key, true)} alt="" loading="lazy" />
-                          ) : (
-                            <FileGlyph type={r.type === 'folder' ? 'folder' : r.name} large />
-                          )}
-                        </button>
-                        <div className="grid-meta">
-                          <span className="file-name" title={r.name}>{r.name}</span>
-                          <small>{itemMeta(r)}</small>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+          <section aria-label="文件列表">
+            <div className="files-section-heading">
+              <h1>{title}</h1>
+              <span>{visible.length} 项</span>
+              {view === 'grid' && visible.length > 0 && selected.length === 0 && (
+                <Checkbox className="grid-select-all" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>
+                  全选
+                </Checkbox>
               )}
-            </Spin>
-          ) : (
-            <div className="panel">
-              <div className="desktop-file-list">
-                <Table
-                  rowKey="key"
-                  size="middle"
-                  columns={columns}
-                  dataSource={visible}
-                  loading={loading}
-                  tableLayout="fixed"
-                  pagination={false}
-                  rowSelection={{
-                    selectedRowKeys: selected,
-                    onChange: setSelected,
-                    columnWidth: 44,
-                  }}
-                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} /> }}
-                />
-              </div>
-              <div className="mobile-file-list">
-                <Spin spinning={loading}>
-                  {visible.length === 0 ? (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
-                  ) : (
-                    visible.map((r) => {
+            </div>
+
+            {view === 'grid' ? (
+              <Spin spinning={loading}>
+                {visible.length === 0 ? (
+                  <div className="panel panel-empty">{emptyNode}</div>
+                ) : (
+                  <div className="file-grid">
+                    {visible.map((r) => {
                       const kind = r.type === 'folder' ? 'folder' : previewType(r.name);
+                      const checked = selected.includes(r.key);
                       return (
-                        <div className="mobile-file-row" key={r.key}>
+                        <div className={`grid-card${checked ? ' is-selected' : ''}`} key={r.key}>
                           <Checkbox
-                            className="mobile-check"
-                            checked={selected.includes(r.key)}
+                            className="grid-check"
+                            checked={checked}
                             aria-label={`选择 ${r.name}`}
                             onChange={(e) => toggleSelect(r.key, e.target.checked)}
                           />
-                          <button type="button" className="mobile-file-main" onClick={() => openItem(r)}>
-                            <FileGlyph type={r.type === 'folder' ? 'folder' : r.name} />
-                            <span className="mobile-file-info">
-                              <span className="file-name" title={r.name}>{r.name}</span>
-                              <small>{r.type === 'folder' ? '文件夹' : `${FILE_LABELS[kind] ?? '文件'} · ${itemMeta(r)}`}</small>
-                            </span>
-                            {r.type === 'folder' && <RightOutlined className="mobile-folder-arrow" />}
+                          <div className="grid-more">{moreButton(r)}</div>
+                          <button type="button" className="grid-thumb" onClick={() => openItem(r)} aria-label={r.name}>
+                            {kind === 'img' ? (
+                              <FileThumbnail name={r.name} url={fileUrl(r.key, true)} />
+                            ) : (
+                              <FileGlyph type={r.type === 'folder' ? 'folder' : r.name} large />
+                            )}
                           </button>
-                          <div className="mobile-file-actions">{moreButton(r)}</div>
+                          <div className="grid-meta">
+                            <span className="file-name" title={r.name}>{r.name}</span>
+                            <small>{itemMeta(r)}</small>
+                          </div>
                         </div>
                       );
-                    })
-                  )}
-                </Spin>
+                    })}
+                  </div>
+                )}
+              </Spin>
+            ) : (
+              <div className="panel">
+                <div className="desktop-file-list">
+                  <Table
+                    rowKey="key"
+                    size="middle"
+                    columns={columns}
+                    dataSource={visible}
+                    loading={loading}
+                    tableLayout="fixed"
+                    pagination={false}
+                    rowSelection={{ selectedRowKeys: selected, onChange: setSelected, columnWidth: 44 }}
+                    locale={{ emptyText: emptyNode }}
+                  />
+                </div>
+                <div className="mobile-file-list">
+                  <Spin spinning={loading}>
+                    {visible.length === 0 ? (
+                      emptyNode
+                    ) : (
+                      visible.map((r) => {
+                        const kind = r.type === 'folder' ? 'folder' : previewType(r.name);
+                        return (
+                          <div className="mobile-file-row" key={r.key}>
+                            <Checkbox
+                              className="mobile-check"
+                              checked={selected.includes(r.key)}
+                              aria-label={`选择 ${r.name}`}
+                              onChange={(e) => toggleSelect(r.key, e.target.checked)}
+                            />
+                            <button type="button" className="mobile-file-main" onClick={() => openItem(r)}>
+                              <FileGlyph type={r.type === 'folder' ? 'folder' : r.name} />
+                              <span className="mobile-file-info">
+                                <span className="file-name" title={r.name}>{r.name}</span>
+                                <small>{r.type === 'folder' ? '文件夹' : `${FILE_LABELS[kind] ?? '文件'} · ${itemMeta(r)}`}</small>
+                              </span>
+                              {r.type === 'folder' && <RightOutlined className="mobile-folder-arrow" />}
+                            </button>
+                            <div className="mobile-file-actions">{moreButton(r)}</div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </Spin>
+                </div>
               </div>
-            </div>
-          )}
-        </section>
-      </main>
+            )}
+          </section>
+        </main>
+      </div>
+
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          enqueueFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <div className="drop-overlay-box">
+            <CloudUploadOutlined />
+            <strong>松开即可上传到「{title}」</strong>
+          </div>
+        </div>
+      )}
+
+      <UploadPanel
+        uploads={uploads}
+        onRemove={(uid) => setUploads((list) => list.filter((u) => u.uid !== uid))}
+        onClear={() => setUploads((list) => list.filter((u) => u.status === 'uploading' || u.status === 'waiting'))}
+      />
 
       <Modal
         title="新建文件夹"
-        open={folderOpen}
+        open={folderParent !== null}
         okText="创建"
         cancelText="取消"
         confirmLoading={busy}
         onOk={createFolder}
-        onCancel={() => setFolderOpen(false)}
+        onCancel={() => setFolderParent(null)}
         destroyOnHidden
       >
         <Input
@@ -652,6 +803,9 @@ export default function FilesPage({ username, onLogout }) {
           onChange={(e) => setFolderName(e.target.value)}
           onPressEnter={createFolder}
         />
+        <p className="modal-hint">
+          {folderParent ? `将创建在「${folderParent.replace(/\/$/, '')}」下。` : '将创建在根目录，并出现在左侧菜单中。'}
+        </p>
       </Modal>
 
       <Modal
@@ -724,6 +878,6 @@ export default function FilesPage({ username, onLogout }) {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 }
