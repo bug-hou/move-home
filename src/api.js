@@ -96,7 +96,7 @@ export function previewType(name) {
 export function formatSize(bytes) {
   if (bytes == null) return '';
   if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB'];
+  const units = ['KB', 'MB', 'GB', 'TB'];
   let n = bytes / 1024;
   let i = 0;
   while (n >= 1024 && i < units.length - 1) {
@@ -154,21 +154,30 @@ async function uploadChunk(id, index, blob, onProgress) {
   throw lastError;
 }
 
-// 分片上传：Blob 单个对象有大小上限，文件按服务端给出的分片大小切开，分片并发直传，最后提交清单
-export async function uploadFile(file, dir, onProgress) {
-  const { id, chunkSize, chunks } = await api('/api/files/upload-init', {
-    method: 'POST',
-    body: { dir, name: file.name, size: file.size },
-  });
-
-  const loaded = new Array(chunks).fill(0);
+// 页面保持打开时分片并发直传；taskId 可查询服务器已落盘分片，失败/刷新后重选原文件续传。
+export async function uploadFile(file, dir, { taskId, onTaskId, onProgress } = {}) {
+  const init = taskId
+    ? await api(`/api/files/upload-status?id=${encodeURIComponent(taskId)}`)
+    : await api('/api/files/upload-init', { method: 'POST', body: { dir, name: file.name, size: file.size } });
+  const id = taskId || init.id;
+  if (!taskId) onTaskId?.(id);
+  if (init.state === 'done') return { key: init.key };
+  if (taskId && init.size !== file.size) throw new Error('文件大小与原任务不一致');
+  const chunkSize = init.chunkSize || 20 * 1024 * 1024;
+  const chunks = init.chunks || Math.ceil(file.size / chunkSize);
+  const uploaded = new Set(init.uploaded || []);
+  const loaded = Array.from({ length: chunks }, (_, i) =>
+    uploaded.has(i) ? Math.min(chunkSize, file.size - i * chunkSize) : 0,
+  );
   const report = () => onProgress?.(Math.min(99, (loaded.reduce((a, b) => a + b, 0) / file.size) * 100));
+  report();
   let next = 0;
   let error = null;
 
   const worker = async () => {
     while (!error && next < chunks) {
       const index = next++;
+      if (uploaded.has(index)) continue;
       const blob = file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize));
       try {
         await uploadChunk(id, index, blob, (n) => {
@@ -184,15 +193,70 @@ export async function uploadFile(file, dir, onProgress) {
   };
 
   await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunks) }, worker));
+  if (error) throw error;
+  return api('/api/files/upload-complete', {
+    method: 'POST',
+    body: { id, dir, name: file.name, size: file.size },
+  });
+}
 
+// 优先使用可流式写入磁盘的 File System Access API；旧浏览器小文件使用 Blob，
+// 大文件交给浏览器原生下载管理，不能假装已知原生下载进度。
+export async function downloadFile(key, name, size, onProgress) {
+  const usePicker = typeof window.showSaveFilePicker === 'function';
+  if (!usePicker && size > 32 * 1024 * 1024) {
+    const link = document.createElement('a');
+    link.href = fileUrl(key, false);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return 'browser';
+  }
+
+  // showSaveFilePicker 必须在点击事件的用户激活阶段调用（不能等 fetch 后）
+  const handle = usePicker ? await window.showSaveFilePicker({ suggestedName: name }) : null;
+  const token = getToken();
+  const res = await fetch(fileUrl(key, false), {
+    credentials: 'same-origin',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok || !res.body) throw new ApiError(`下载失败 (${res.status})`, res.status);
+  if (!res.headers.get('Content-Disposition')) {
+    await res.body.cancel();
+    throw new ApiError('下载接口返回异常，请检查后端服务', res.status);
+  }
+  const length = Number(res.headers.get('Content-Length')) || size;
+  const reader = res.body.getReader();
+  let writer;
+  const parts = [];
+  let doneBytes = 0;
   try {
-    if (error) throw error;
-    return await api('/api/files/upload-complete', {
-      method: 'POST',
-      body: { id, dir, name: file.name, size: file.size },
-    });
-  } catch (e) {
-    api('/api/files/upload-abort', { method: 'POST', body: { id, chunks } }).catch(() => {});
-    throw e;
+    if (handle) writer = await handle.createWritable();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (writer) await writer.write(value);
+      else parts.push(value);
+      doneBytes += value.byteLength;
+      onProgress?.(Math.min(99, length ? doneBytes / length * 100 : 0));
+    }
+    if (length && doneBytes !== length) throw new Error('下载不完整，请重试');
+    if (writer) await writer.close();
+    else {
+      const url = URL.createObjectURL(new Blob(parts));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+    onProgress?.(100);
+    return 'done';
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    if (writer) await writer.abort().catch(() => {});
+    throw error;
   }
 }

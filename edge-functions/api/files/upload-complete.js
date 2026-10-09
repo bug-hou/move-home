@@ -13,6 +13,7 @@ import {
 } from '../../../lib/files.js';
 import { HttpError, json, readJson } from '../../../lib/http.js';
 import { route } from '../../../lib/route.js';
+import { finishUploadSession, getUploadSession } from '../../../lib/upload-session.js';
 
 function contentLength(meta) {
   for (const [k, v] of Object.entries(meta?.headers ?? {})) {
@@ -32,6 +33,11 @@ export const onRequestPost = route(async ({ request }, username) => {
   const wanted = cleanFileName(body.name);
   const size = Number(body.size);
   if (typeof body.id !== 'string' || !ID_RE.test(body.id)) throw new HttpError(400, '上传 id 不合法');
+  const session = await getUploadSession(username, body.id);
+  if (session.state === 'done') return json({ key: session.key, name: session.key.split('/').pop() });
+  if (session.dir !== dir || session.name !== wanted || session.size !== size) {
+    throw new HttpError(400, '任务信息与上传文件不符');
+  }
   if (!Number.isInteger(size) || size <= 0 || size > MAX_FILE_SIZE) throw new HttpError(400, '文件大小不合法');
 
   const chunks = Math.ceil(size / CHUNK_SIZE);
@@ -57,6 +63,7 @@ export const onRequestPost = route(async ({ request }, username) => {
     mime: guessMime(name),
     mtime: Date.now(),
   });
+  await finishUploadSession(username, body.id, session, dir + name);
   await addUsage(username, size);
   return json({ key: dir + name, name });
 });

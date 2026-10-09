@@ -1,6 +1,7 @@
 import {
   CloudOutlined,
   CloudUploadOutlined,
+  SwapOutlined,
   DeleteOutlined,
   EditOutlined,
   FolderFilled,
@@ -21,9 +22,12 @@ const FOLDER_MENU = [
 export default function Sidebar({
   folders,
   dir,
+  section,
+  activeTransfers,
   usage,
   onUpload,
   onNavigate,
+  onTransfers,
   onCreateFolder,
   onFolderAction,
   onRecalcUsage,
@@ -45,23 +49,33 @@ export default function Sidebar({
       <nav className="sidebar-nav" aria-label="主导航">
         <button
           type="button"
-          className={`nav-item${dir === '' ? ' is-active' : ''}`}
-          aria-current={dir === '' ? 'page' : undefined}
+          className={`nav-item${section === 'files' && dir === '' ? ' is-active' : ''}`}
+          aria-current={section === 'files' && dir === '' ? 'page' : undefined}
           onClick={() => onNavigate('')}
         >
           <CloudOutlined className="nav-icon" />
           <span className="file-name">全部文件</span>
         </button>
+        <button
+          type="button"
+          className={`nav-item${section === 'transfers' ? ' is-active' : ''}`}
+          aria-current={section === 'transfers' ? 'page' : undefined}
+          onClick={onTransfers}
+        >
+          <SwapOutlined className="nav-icon" />
+          <span className="file-name">传输列表</span>
+          {activeTransfers > 0 && <span className="nav-badge">{activeTransfers}</span>}
+        </button>
 
         <div className="nav-section">
           <span>我的文件夹</span>
-          <Button type="text" size="small" icon={<PlusOutlined />} aria-label="新建文件夹" title="新建文件夹" onClick={onCreateFolder} />
+          <Button type="text" size="small" className="create-folder-trigger" icon={<PlusOutlined />} aria-label="新建文件夹" title="新建文件夹" onClick={onCreateFolder} />
         </div>
 
         {folders.length === 0 && <p className="nav-empty">点击右上角 + 创建第一个文件夹，它会出现在这里。</p>}
 
         {folders.map((f) => {
-          const active = f.key === activeRoot;
+          const active = section === 'files' && f.key === activeRoot;
           return (
             <div className="nav-row" key={f.key}>
               <button
@@ -100,6 +114,9 @@ export default function Sidebar({
         <Progress percent={percent} showInfo={false} size="small" status={percent >= 90 ? 'exception' : 'normal'} />
         <p className="usage-text">
           {usage ? `已用 ${formatSize(usage.used)} / ${formatSize(usage.quota)}` : '计算中…'}
+        </p>
+        <p className="usage-hint" title="产品层逻辑额度；实际可用量以 EdgeOne Blob 套餐为准，免费版为 1 GB">
+          逻辑额度 · 实际容量取决于 Blob 套餐
         </p>
       </div>
     </div>

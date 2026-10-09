@@ -196,6 +196,13 @@
   font-size: 12px;
 }
 
+.usage-hint {
+  margin: 4px 0 0;
+  color: #88968e;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 /* ---------- 顶栏 ---------- */
 
 .app-content {
@@ -300,9 +307,9 @@
 /* ---------- 内容区 ---------- */
 
 .app-main {
-  max-width: 1180px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 28px 40px 96px;
+  padding: 20px 32px 80px;
 }
 
 .page-head {
@@ -311,7 +318,8 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 18px;
+  min-height: 38px;
+  margin-bottom: 12px;
 }
 
 .page-path {
@@ -349,6 +357,24 @@
   font-size: 14px;
 }
 
+.crumbs-scroll .ant-breadcrumb li:last-child {
+  color: #263931;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.page-count {
+  flex: none;
+  color: #8a9890;
+  font-size: 12px;
+}
+
+.grid-selection {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .crumb-link {
   min-height: 32px;
   padding: 0;
@@ -361,35 +387,6 @@
 
 .crumb-link:hover {
   color: var(--brand-green-deep);
-}
-
-.files-section-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.files-section-heading h1 {
-  margin: 0;
-  overflow: hidden;
-  color: #243630;
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.files-section-heading > span {
-  flex: none;
-  color: var(--brand-muted);
-  font-size: 12px;
-}
-
-.grid-select-all {
-  margin-left: auto;
-  font-size: 12px;
 }
 
 .panel {
@@ -409,9 +406,9 @@
 }
 
 .panel .ant-table-thead > tr > th {
-  height: 48px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  height: 40px;
+  padding-top: 6px;
+  padding-bottom: 6px;
   background: #fff;
   color: #839188;
   font-size: 12px;
@@ -419,7 +416,9 @@
 }
 
 .panel .ant-table-tbody > tr > td {
-  height: 68px;
+  height: 52px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .panel .ant-table-tbody > tr:hover > td {
@@ -438,10 +437,17 @@
 }
 
 .row-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px 28px;
   align-items: center;
   justify-content: center;
   gap: 2px;
+}
+
+.row-action-spacer {
+  display: block;
+  width: 28px;
+  height: 28px;
 }
 
 .row-actions .ant-btn {
@@ -474,7 +480,7 @@
 .panel .link-btn.ant-btn {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 36px;
   font-weight: 500;
   text-align: left;
 }
@@ -498,9 +504,9 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 40px;
-  height: 42px;
-  border-radius: 10px;
+  width: 34px;
+  height: 36px;
+  border-radius: 8px;
   background: #f0f3f1;
   color: #6d8178;
 }
@@ -672,91 +678,7 @@
   white-space: nowrap;
 }
 
-/* ---------- 上传：右下角面板 + 拖拽遮罩 ---------- */
-
-.upload-panel {
-  position: fixed;
-  z-index: 20;
-  right: 24px;
-  bottom: 24px;
-  width: 340px;
-  max-width: calc(100vw - 24px);
-  overflow: hidden;
-  border: 1px solid var(--brand-border);
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 12px 40px rgba(24, 40, 34, 0.18);
-}
-
-.upload-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 8px 8px 16px;
-  background: var(--brand-green);
-  color: #fff;
-  font-size: 14px;
-}
-
-.upload-panel-head .ant-btn {
-  color: #fff;
-}
-
-.upload-panel-head .ant-btn:hover {
-  background: rgba(255, 255, 255, 0.14) !important;
-  color: #fff !important;
-}
-
-.upload-panel-list {
-  max-height: 280px;
-  margin: 0;
-  padding: 4px 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.upload-row {
-  padding: 8px 16px;
-  font-size: 13px;
-}
-
-.upload-row-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.upload-row-head .file-name {
-  flex: 1;
-}
-
-.upload-row .ant-progress {
-  margin: 0;
-  line-height: 1;
-}
-
-.upload-ok {
-  color: #3f8f5d;
-}
-
-.upload-fail {
-  color: #c4493d;
-}
-
-.upload-state,
-.upload-error {
-  display: block;
-  font-size: 12px;
-}
-
-.upload-state {
-  color: #8a948d;
-}
-
-.upload-error {
-  color: #b4443a;
-}
+/* ---------- 拖拽上传遮罩 ---------- */
 
 .drop-overlay {
   position: fixed;
@@ -786,6 +708,107 @@
 
 .drop-overlay-box .anticon {
   font-size: 44px;
+}
+
+/* ---------- 手机端上传来源 ---------- */
+
+.upload-source-drawer .ant-drawer-content {
+  border-radius: 22px 22px 0 0;
+  background: #fff;
+}
+
+.upload-source-drawer .ant-drawer-header {
+  padding: 22px 22px 8px;
+  border-bottom: 0;
+}
+
+.upload-source-drawer .ant-drawer-title {
+  color: #203b32;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.upload-source-drawer .ant-drawer-body {
+  padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.upload-source-hint {
+  margin: 0 2px 18px;
+  color: #829188;
+  font-size: 13px;
+}
+
+.upload-source-options {
+  display: grid;
+  gap: 10px;
+}
+
+.upload-source-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  padding: 12px 16px;
+  border: 1px solid #e7eee9;
+  border-radius: 14px;
+  background: #f9fbf9;
+  color: #263c33;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.upload-source-option:active {
+  background: #eef5ef;
+}
+
+.upload-source-option:focus-visible {
+  outline: 2px solid var(--brand-green-hover);
+  outline-offset: 2px;
+}
+
+.upload-source-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 22px;
+}
+
+.upload-source-icon--media {
+  background: #e8f4eb;
+  color: #39825c;
+}
+
+.upload-source-icon--file {
+  background: #edf0f9;
+  color: #5a71a5;
+}
+
+.upload-source-copy {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.upload-source-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.upload-source-copy small {
+  color: #85948a;
+  font-size: 12px;
+}
+
+.upload-source-arrow {
+  color: #9bab9f;
+  font-size: 12px;
 }
 
 /* ---------- 弹窗 ---------- */
@@ -864,11 +887,49 @@
   justify-content: center;
 }
 
-.preview-body img,
-.preview-body video {
+.preview-body {
+  min-width: 0;
+}
+
+.preview-body img {
   max-width: 100%;
   max-height: 70vh;
   border-radius: 8px;
+}
+
+.preview-video,
+.preview-video-loading {
+  width: 100%;
+}
+
+.preview-video-skin {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #101716;
+  --media-accent-color: #67cba2;
+  --media-accent-text-color: #102a21;
+  --media-object-fit: contain;
+}
+
+.preview-video-skin video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.preview-video-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+}
+
+.preview-video-error {
+  margin: 12px 0 0;
+  color: #b4443a;
+  font-size: 13px;
 }
 
 .preview-body audio {
@@ -891,6 +952,28 @@
 @media (max-width: 1100px) {
   .tool-label {
     display: none;
+  }
+}
+
+@media (hover: none) {
+  .create-folder-trigger.ant-btn {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .create-folder-trigger.ant-btn:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .create-folder-trigger.ant-btn-default:is(:hover, :active):not(:disabled):not(:focus-visible) {
+    border-color: #dce5dc;
+    background: #fff;
+    color: #253e37;
+  }
+
+  .create-folder-trigger.ant-btn-text:is(:hover, :active):not(:disabled):not(:focus-visible) {
+    background: transparent;
+    color: inherit;
   }
 }
 
@@ -935,10 +1018,6 @@
 }
 
 @media (max-width: 680px) {
-  .files-section-heading h1 {
-    font-size: 22px;
-  }
-
   .page-tools {
     flex: 1 1 100%;
   }
@@ -1043,17 +1122,12 @@
     padding: 0;
   }
 
-  .upload-panel {
-    right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    left: 12px;
-    width: auto;
-    max-width: none;
+  .preview-body img {
+    max-height: 68dvh;
   }
 
-  .preview-body img,
-  .preview-body video {
-    max-height: 68dvh;
+  .preview-video-loading {
+    min-height: 190px;
   }
 
   .preview-footer {
@@ -1070,4 +1144,120 @@
   .grid-more {
     transition: none;
   }
+}
+
+.nav-badge {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #dae9e1;
+  color: #275944;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.transfer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 4px 0 20px;
+}
+
+.transfer-heading h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.transfer-heading p,
+.transfer-note {
+  margin: 0;
+  color: #7b8982;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.transfer-tabs {
+  margin-bottom: 16px;
+}
+
+.transfer-empty {
+  padding: 44px 0;
+  border: 1px solid #e8ece9;
+  border-radius: 10px;
+}
+
+.transfer-items {
+  overflow: hidden;
+  border: 1px solid #e8ece9;
+  border-radius: 10px;
+}
+
+.transfer-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 70px;
+  padding: 12px 18px;
+  border-bottom: 1px solid #eef1ef;
+}
+
+.transfer-item:last-child {
+  border-bottom: 0;
+}
+
+.transfer-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.transfer-item-top {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.transfer-item-size {
+  flex: none;
+  color: #8a9990;
+  font-size: 12px;
+}
+
+.transfer-item .ant-progress {
+  margin: 3px 0 0;
+  line-height: 1;
+}
+
+.transfer-state {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #8a9990;
+  font-size: 12px;
+}
+
+.transfer-state.is-error { color: #c56756; }
+.transfer-actions { display: flex; align-items: center; gap: 6px; }
+.transfer-note { margin-top: 18px; }
+
+.transfer-float.ant-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 10;
+  height: 38px;
+  border-color: #dbe9e0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 20px rgba(25, 45, 36, 0.12);
+}
+
+@media (max-width: 680px) {
+  .transfer-heading { align-items: flex-start; flex-direction: column; }
+  .transfer-item { gap: 9px; padding: 10px; }
+  .transfer-actions .ant-btn { padding: 4px; font-size: 12px; }
+  .transfer-float.ant-btn { right: 12px; bottom: 12px; }
 }

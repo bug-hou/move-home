@@ -7,6 +7,7 @@ import {
   EditOutlined,
   ExportOutlined,
   FolderAddOutlined,
+  FolderOpenOutlined,
   FolderFilled,
   LeftOutlined,
   LogoutOutlined,
@@ -34,12 +35,15 @@ import {
   Spin,
   Table,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_SIZE, api, fileUrl, formatSize, formatTime, previewType, uploadFile } from '../api.js';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MAX_SIZE, api, downloadFile, fileUrl, formatSize, formatTime, previewType, uploadFile } from '../api.js';
 import FileGlyph, { FileThumbnail } from '../components/FileGlyph.jsx';
 import MoveModal from '../components/MoveModal.jsx';
 import Sidebar from '../components/Sidebar.jsx';
-import UploadPanel from '../components/UploadPanel.jsx';
+import TransferList from '../components/TransferList.jsx';
+import { readTransfers, saveTransfers } from '../transfer-history.js';
+
+const VideoPreview = lazy(() => import('../components/VideoPreview.jsx'));
 
 const FILE_LABELS = { img: '照片', video: '视频', audio: '音频' };
 
@@ -75,15 +79,6 @@ const readView = () => {
 // 'a/b/' -> 'a/'，'a/b.jpg' -> 'a/'
 const parentOf = (key) => key.replace(/[^/]+\/?$/, '');
 
-function triggerDownload(key) {
-  const a = document.createElement('a');
-  a.href = fileUrl(key, false);
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
-
 const itemMeta = (r) =>
   r.type === 'folder' ? '文件夹' : [formatSize(r.size), formatTime(r.mtime)].filter(Boolean).join(' · ');
 
@@ -92,11 +87,12 @@ let uidSeed = 0;
 export default function FilesPage({ username, onLogout }) {
   const { message, modal } = AntApp.useApp();
   const [dir, setDir] = useState('');
+  const [section, setSection] = useState('files');
   const [items, setItems] = useState([]);
   const [rootFolders, setRootFolders] = useState([]);
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [uploads, setUploads] = useState([]);
+  const [uploads, setUploads] = useState(() => readTransfers(username));
   const [previewKey, setPreviewKey] = useState(null);
   const [view, setView] = useState(readView);
   const [sort, setSort] = useState('name_asc');
@@ -109,9 +105,13 @@ export default function FilesPage({ username, onLogout }) {
   const [moving, setMoving] = useState(null);
   const [busy, setBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const queue = useRef({ chain: Promise.resolve(), pending: 0 });
   const fileInput = useRef(null);
+  const mediaInput = useRef(null);
+  const resumeInput = useRef(null);
+  const resumeTask = useRef(null);
   const dirRef = useRef(dir);
   const loadSeq = useRef(0);
 
@@ -164,6 +164,27 @@ export default function FilesPage({ username, onLogout }) {
     loadUsage();
   }, [loadRoot, loadUsage]);
 
+  useEffect(() => {
+    saveTransfers(username, uploads);
+  }, [username, uploads]);
+
+  useEffect(() => {
+    // 刷新后查询真实已落盘分片，不把关闭页面之前的“已发送”字节视为成功。
+    for (const item of uploads) {
+      if (item.direction !== 'upload' || !item.taskId || item.status !== 'paused') continue;
+      api(`/api/files/upload-status?id=${encodeURIComponent(item.taskId)}`).then((state) => {
+        if (state.state === 'done') {
+          setUploads((list) => list.map((entry) => entry.uid === item.uid ? { ...entry, status: 'done', percent: 100 } : entry));
+        } else {
+          const doneBytes = state.uploaded.reduce((sum, i) => sum + Math.min(state.chunkSize, item.size - i * state.chunkSize), 0);
+          setUploads((list) => list.map((entry) => entry.uid === item.uid ? { ...entry, percent: Math.min(99, doneBytes / item.size * 100) } : entry));
+        }
+      }).catch(() => {});
+    }
+  // 仅进入页面时同步一次，避免同一任务重复查询
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 变更之后统一刷新：当前目录 + 侧边栏 + 存储空间；当前目录被删除/改名时回到根目录
   const refresh = useCallback(
     (gone = []) => {
@@ -177,6 +198,12 @@ export default function FilesPage({ username, onLogout }) {
 
   const navigate = (target) => {
     setDir(target);
+    setSection('files');
+    setDrawerOpen(false);
+  };
+
+  const showTransfers = () => {
+    setSection('transfers');
     setDrawerOpen(false);
   };
 
@@ -343,10 +370,20 @@ export default function FilesPage({ username, onLogout }) {
     message.success('已重新计算');
   };
 
+  const startDownload = (item) => {
+    const uid = `download-${Date.now()}-${uidSeed++}`;
+    setUploads((list) => [{ uid, direction: 'download', name: item.name, key: item.key,
+      size: item.size, status: 'downloading', percent: 0, createdAt: Date.now() }, ...list]);
+    // 直接在用户点击事件中启动，流式保存选择器需要 user activation。
+    downloadFile(item.key, item.name, item.size, (percent) => patchUpload(uid, { percent }))
+      .then((result) => patchUpload(uid, { status: result === 'browser' ? 'browser' : 'done', percent: 100 }))
+      .catch((error) => patchUpload(uid, { status: 'error', error: error.name === 'AbortError' ? '已取消保存' : error.message }));
+  };
+
   const openItem = (item) => {
     if (item.type === 'folder') setDir(item.key);
     else if (previewType(item.name)) setPreviewKey(item.key);
-    else triggerDownload(item.key);
+    else startDownload(item);
   };
 
   const rowMenu = (item) => ({
@@ -364,7 +401,7 @@ export default function FilesPage({ username, onLogout }) {
     ],
     onClick: ({ key }) => {
       if (key === 'open') openItem(item);
-      else if (key === 'download') triggerDownload(item.key);
+      else if (key === 'download') startDownload(item);
       else if (key === 'rename') openRename(item);
       else if (key === 'move') setMoving([item]);
       else if (key === 'delete') remove([item]);
@@ -380,18 +417,33 @@ export default function FilesPage({ username, onLogout }) {
   // ---------- 上传 ----------
 
   const patchUpload = useCallback(
-    (uid, patch) => setUploads((list) => list.map((u) => (u.uid === uid ? { ...u, ...patch } : u))),
+    (uid, patch) => setUploads((list) => {
+      let changed = false;
+      const next = list.map((u) => {
+        if (u.uid !== uid) return u;
+        if (Object.keys(patch).length === 1 && patch.percent !== undefined &&
+          Math.floor(patch.percent) === Math.floor(u.percent || 0)) return u;
+        changed = true;
+        return { ...u, ...patch };
+      });
+      return changed ? next : list;
+    }),
     [],
   );
 
   const uploadOne = async (entry, file, targetDir) => {
-    patchUpload(entry.uid, { status: 'uploading' });
+    patchUpload(entry.uid, { status: 'uploading', error: '' });
     try {
       if (file.size <= 0) throw new Error('不支持空文件或文件夹');
       if (file.size > MAX_SIZE) throw new Error(`超过 ${MAX_SIZE / 1024 / 1024}MB`);
-      await uploadFile(file, targetDir, (percent) => patchUpload(entry.uid, { percent }));
+      await uploadFile(file, targetDir, {
+        taskId: entry.taskId,
+        onTaskId: (taskId) => patchUpload(entry.uid, { taskId }),
+        onProgress: (percent) => patchUpload(entry.uid, { percent }),
+      });
       patchUpload(entry.uid, { status: 'done', percent: 100 });
     } catch (e) {
+      // 上传失败不清除任务和已落盘分片；重新选择原文件时可以续传。
       patchUpload(entry.uid, { status: 'error', error: e.message });
     }
   };
@@ -403,7 +455,9 @@ export default function FilesPage({ username, onLogout }) {
     const targetDir = dirRef.current;
     const q = queue.current;
     for (const file of files) {
-      const entry = { uid: `${Date.now()}-${uidSeed++}`, name: file.name, status: 'waiting', percent: 0 };
+      const entry = { uid: `${Date.now()}-${uidSeed++}`, direction: 'upload',
+        name: file.name, size: file.size, modified: file.lastModified, dir: targetDir,
+        status: 'waiting', percent: 0, createdAt: Date.now() };
       setUploads((list) => [...list, entry]);
       q.pending += 1;
       q.chain = q.chain.then(async () => {
@@ -420,7 +474,51 @@ export default function FilesPage({ username, onLogout }) {
 
   const pickFiles = () => {
     setDrawerOpen(false);
-    fileInput.current?.click();
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      setUploadSourceOpen(true);
+    } else {
+      fileInput.current?.click();
+    }
+  };
+
+  const pickUploadSource = (input) => {
+    // 必须在用户点击事件内同步打开系统选择器，移动浏览器才会允许访问相册/文件。
+    input.current?.click();
+    setUploadSourceOpen(false);
+  };
+
+  const requestResume = (task) => {
+    resumeTask.current = task;
+    resumeInput.current?.click();
+  };
+
+  const resumeUpload = (file) => {
+    const task = resumeTask.current;
+    if (!task || !file) return;
+    if (file.name !== task.name || file.size !== task.size || file.lastModified !== task.modified) {
+      message.error('请选择同名、大小和修改时间均与原任务一致的文件');
+      return;
+    }
+    const q = queue.current;
+    q.pending += 1;
+    q.chain = q.chain.then(async () => {
+      await uploadOne(task, file, task.dir);
+      q.pending -= 1;
+      if (q.pending === 0) {
+        loadUsage();
+        if (section === 'files') load(dirRef.current);
+      }
+    });
+  };
+
+  const removeTransfer = (item) => {
+    if (item.direction === 'upload' && item.taskId && item.status !== 'done') {
+      api('/api/files/upload-abort', { method: 'POST', body: { id: item.taskId } })
+        .then(() => setUploads((list) => list.filter((entry) => entry.uid !== item.uid)))
+        .catch((e) => message.error(e.message));
+    } else {
+      setUploads((list) => list.filter((entry) => entry.uid !== item.uid));
+    }
   };
 
   // 拖拽文件到页面任意位置即可上传
@@ -515,9 +613,9 @@ export default function FilesPage({ username, onLogout }) {
       align: 'center',
       render: (_, r) => (
         <div className="row-actions">
-          {r.type === 'file' && (
-            <Button type="text" icon={<DownloadOutlined />} aria-label={`下载 ${r.name}`} onClick={() => triggerDownload(r.key)} />
-          )}
+          {r.type === 'file' ? (
+            <Button type="text" icon={<DownloadOutlined />} aria-label={`下载 ${r.name}`} onClick={() => startDownload(r)} />
+          ) : <span className="row-action-spacer" aria-hidden="true" />}
           {moreButton(r)}
         </div>
       ),
@@ -532,7 +630,7 @@ export default function FilesPage({ username, onLogout }) {
       {!search && (
         <Space>
           <Button type="primary" icon={<CloudUploadOutlined />} onClick={pickFiles}>上传文件</Button>
-          <Button icon={<FolderAddOutlined />} onClick={() => openCreateFolder(dir)}>新建文件夹</Button>
+          <Button className="create-folder-trigger" icon={<FolderAddOutlined />} onClick={() => openCreateFolder(dir)}>新建文件夹</Button>
         </Space>
       )}
     </Empty>
@@ -542,9 +640,12 @@ export default function FilesPage({ username, onLogout }) {
     <Sidebar
       folders={rootFolders}
       dir={dir}
+      section={section}
+      activeTransfers={uploads.filter((u) => ['waiting', 'uploading', 'downloading'].includes(u.status)).length}
       usage={usage}
       onUpload={pickFiles}
       onNavigate={navigate}
+      onTransfers={showTransfers}
       onCreateFolder={() => openCreateFolder('')}
       onFolderAction={onFolderAction}
       onRecalcUsage={recalcUsage}
@@ -568,6 +669,29 @@ export default function FilesPage({ username, onLogout }) {
         {sidebar}
       </Drawer>
 
+      <Drawer
+        placement="bottom"
+        height="auto"
+        title="选择上传来源"
+        open={uploadSourceOpen}
+        onClose={() => setUploadSourceOpen(false)}
+        rootClassName="upload-source-drawer"
+      >
+        <p className="upload-source-hint">上传到「{title}」</p>
+        <div className="upload-source-options">
+          <button type="button" className="upload-source-option" onClick={() => pickUploadSource(mediaInput)}>
+            <span className="upload-source-icon upload-source-icon--media"><PictureOutlined /></span>
+            <span className="upload-source-copy"><strong>从相册选择</strong><small>照片或视频，可多选</small></span>
+            <RightOutlined className="upload-source-arrow" />
+          </button>
+          <button type="button" className="upload-source-option" onClick={() => pickUploadSource(fileInput)}>
+            <span className="upload-source-icon upload-source-icon--file"><FolderOpenOutlined /></span>
+            <span className="upload-source-copy"><strong>浏览文件</strong><small>文档、压缩包及其他文件</small></span>
+            <RightOutlined className="upload-source-arrow" />
+          </button>
+        </div>
+      </Drawer>
+
       <div className="app-content">
         <header className="topbar">
           <Button
@@ -577,14 +701,16 @@ export default function FilesPage({ username, onLogout }) {
             aria-label="打开菜单"
             onClick={() => setDrawerOpen(true)}
           />
-          <Input
-            allowClear
-            className="topbar-search"
-            prefix={<SearchOutlined />}
-            placeholder={dir ? `在「${title}」中搜索` : '搜索当前文件夹'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          {section === 'files' ? (
+            <Input
+              allowClear
+              className="topbar-search"
+              prefix={<SearchOutlined />}
+              placeholder={dir ? `在「${title}」中搜索` : '搜索当前文件夹'}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          ) : null}
           <Dropdown
             trigger={['click']}
             placement="bottomRight"
@@ -620,12 +746,23 @@ export default function FilesPage({ username, onLogout }) {
         </header>
 
         <main className="app-main">
+          {section === 'transfers' ? (
+            <TransferList
+              transfers={uploads}
+              onResume={requestResume}
+              onRemove={removeTransfer}
+              onClear={(direction) => setUploads((list) => list.filter((u) =>
+                u.direction !== direction || !['done', 'browser'].includes(u.status)
+              ))}
+            />
+          ) : <>
           <div className="page-head">
             <div className="page-path">
               {dir && (
                 <Button type="text" icon={<LeftOutlined />} aria-label="返回上一级" onClick={() => setDir(parentOf(dir))} />
               )}
               <div className="crumbs-scroll"><Breadcrumb items={crumbs} /></div>
+              <span className="page-count">{visible.length} 项</span>
             </div>
             <div className="page-tools">
               <Select
@@ -643,7 +780,7 @@ export default function FilesPage({ username, onLogout }) {
                   { value: 'grid', icon: <AppstoreOutlined />, label: <span className="sr-only">网格视图</span> },
                 ]}
               />
-              <Button icon={<FolderAddOutlined />} onClick={() => openCreateFolder(dir)}>
+              <Button className="create-folder-trigger" icon={<FolderAddOutlined />} aria-label="新建文件夹" onClick={() => openCreateFolder(dir)}>
                 <span className="tool-label">新建文件夹</span>
               </Button>
             </div>
@@ -662,16 +799,12 @@ export default function FilesPage({ username, onLogout }) {
             </div>
           )}
 
-          <section aria-label="文件列表">
-            <div className="files-section-heading">
-              <h1>{title}</h1>
-              <span>{visible.length} 项</span>
-              {view === 'grid' && visible.length > 0 && selected.length === 0 && (
-                <Checkbox className="grid-select-all" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>
-                  全选
-                </Checkbox>
-              )}
-            </div>
+          <section aria-label={`文件列表：${title}`}>
+            {view === 'grid' && visible.length > 0 && selected.length === 0 && (
+              <div className="grid-selection">
+                <Checkbox checked={allChecked} onChange={(e) => toggleAll(e.target.checked)}>全选</Checkbox>
+              </div>
+            )}
 
             {view === 'grid' ? (
               <Spin spinning={loading}>
@@ -756,12 +889,24 @@ export default function FilesPage({ username, onLogout }) {
               </div>
             )}
           </section>
+          </>}
         </main>
       </div>
 
       <input
         ref={fileInput}
         type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          enqueueFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref={mediaInput}
+        type="file"
+        accept="image/*,video/*"
         multiple
         hidden
         onChange={(e) => {
@@ -779,11 +924,20 @@ export default function FilesPage({ username, onLogout }) {
         </div>
       )}
 
-      <UploadPanel
-        uploads={uploads}
-        onRemove={(uid) => setUploads((list) => list.filter((u) => u.uid !== uid))}
-        onClear={() => setUploads((list) => list.filter((u) => u.status === 'uploading' || u.status === 'waiting'))}
+      <input
+        ref={resumeInput}
+        type="file"
+        hidden
+        onChange={(e) => {
+          resumeUpload(e.target.files?.[0]);
+          e.target.value = '';
+        }}
       />
+      {section !== 'transfers' && uploads.some((u) => ['waiting', 'uploading', 'downloading'].includes(u.status)) && (
+        <Button className="transfer-float" onClick={showTransfers}>
+          正在传输 {uploads.filter((u) => ['waiting', 'uploading', 'downloading'].includes(u.status)).length} 项 · 查看进度
+        </Button>
+      )}
 
       <Modal
         title="新建文件夹"
@@ -863,7 +1017,7 @@ export default function FilesPage({ username, onLogout }) {
               >
                 下一个 <RightOutlined />
               </Button>
-              <Button icon={<DownloadOutlined />} onClick={() => previewItem && triggerDownload(previewItem.key)}>
+              <Button icon={<DownloadOutlined />} onClick={() => previewItem && startDownload(previewItem)}>
                 下载
               </Button>
             </Space>
@@ -873,7 +1027,11 @@ export default function FilesPage({ username, onLogout }) {
         {previewItem && (
           <div className="preview-body">
             {previewType(previewItem.name) === 'img' && <img src={fileUrl(previewItem.key, true)} alt={previewItem.name} />}
-            {previewType(previewItem.name) === 'video' && <video key={previewItem.key} src={fileUrl(previewItem.key, true)} controls autoPlay />}
+            {previewType(previewItem.name) === 'video' && (
+              <Suspense fallback={<div className="preview-video-loading"><Spin tip="正在加载播放器"><span /></Spin></div>}>
+                <VideoPreview key={previewItem.key} src={fileUrl(previewItem.key, true)} name={previewItem.name} />
+              </Suspense>
+            )}
             {previewType(previewItem.name) === 'audio' && <audio key={previewItem.key} src={fileUrl(previewItem.key, true)} controls autoPlay />}
           </div>
         )}

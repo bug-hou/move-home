@@ -1,17 +1,15 @@
-import { ID_RE, MAX_CHUNKS, chunkKey, getBlobStore, mapLimit } from '../../../lib/files.js';
+import { chunkKey, getBlobStore, mapLimit } from '../../../lib/files.js';
 import { HttpError, json, readJson } from '../../../lib/http.js';
 import { route } from '../../../lib/route.js';
+import { getUploadSession, removeUploadSession } from '../../../lib/upload-session.js';
 
-// POST /api/files/upload-abort  { id, chunks }
-// 上传失败 / 取消时，清理已经写入的分片（尽力而为）
+// POST /api/files/upload-abort { id }：仅明确取消时清理分片，上传失败留待续传。
 export const onRequestPost = route(async ({ request }, username) => {
   const body = await readJson(request);
-  const chunks = Number(body.chunks);
-  if (typeof body.id !== 'string' || !ID_RE.test(body.id)) throw new HttpError(400, '上传 id 不合法');
-  if (!Number.isInteger(chunks) || chunks < 1 || chunks > MAX_CHUNKS) throw new HttpError(400, '分片数不合法');
-
-  const store = getBlobStore();
-  const indexes = Array.from({ length: chunks }, (_, i) => i);
-  await mapLimit(indexes, 6, (i) => store.delete(chunkKey(username, body.id, i)).catch(() => {}));
+  const session = await getUploadSession(username, body.id, { allowExpired: true });
+  if (session.state !== 'uploading') throw new HttpError(409, '已完成的文件不能取消');
+  const indexes = Array.from({ length: session.chunks }, (_, i) => i);
+  await mapLimit(indexes, 6, (i) => getBlobStore().delete(chunkKey(username, body.id, i)));
+  await removeUploadSession(username, body.id);
   return json({ ok: true });
 });

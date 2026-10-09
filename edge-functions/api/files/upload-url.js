@@ -1,6 +1,7 @@
 import { UPLOAD_URL_TTL } from '../../../lib/config.js';
-import { ID_RE, MAX_CHUNKS, chunkKey, getBlobStore } from '../../../lib/files.js';
+import { chunkKey, getBlobStore } from '../../../lib/files.js';
 import { HttpError, json, readJson } from '../../../lib/http.js';
+import { getUploadSession } from '../../../lib/upload-session.js';
 import { route } from '../../../lib/route.js';
 
 const CHUNK_CONTENT_TYPE = 'application/octet-stream';
@@ -10,8 +11,9 @@ const CHUNK_CONTENT_TYPE = 'application/octet-stream';
 export const onRequestPost = route(async ({ request }, username) => {
   const body = await readJson(request);
   const index = Number(body.index);
-  if (typeof body.id !== 'string' || !ID_RE.test(body.id)) throw new HttpError(400, '上传 id 不合法');
-  if (!Number.isInteger(index) || index < 0 || index >= MAX_CHUNKS) throw new HttpError(400, '分片序号不合法');
+  const session = await getUploadSession(username, body.id);
+  if (session.state !== 'uploading') throw new HttpError(409, '上传任务已结束');
+  if (!Number.isInteger(index) || index < 0 || index >= session.chunks) throw new HttpError(400, '分片序号不合法');
 
   const { url } = await getBlobStore().createUploadUrl(chunkKey(username, body.id, index), {
     expireSeconds: UPLOAD_URL_TTL,
