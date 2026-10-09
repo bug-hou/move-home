@@ -20,6 +20,10 @@ export default function App() {
       .catch(() => setUser(null));
   }, []);
 
+  useEffect(() => {
+    if (user !== undefined) window.scrollTo(0, 0);
+  }, [user]);
+
   if (user === undefined) {
     return (
       <div className="auth-page">

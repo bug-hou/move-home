@@ -1,8 +1,32 @@
-import { ArrowRightOutlined, CameraOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, Button, Form, Input } from 'antd';
 import { useState } from 'react';
 import { api } from '../api.js';
 import travelCoast from '../assets/travel-coast-crop.jpg';
+import travelDesert from '../assets/travel-desert.jpg';
+import travelSnow from '../assets/travel-snow.jpg';
+import Brand from '../components/Brand.jsx';
+
+const SCENES = [
+  {
+    image: travelCoast,
+    title: <>去过的地方，<br />都值得珍藏。</>,
+    description: '将旅途中的每一帧风景、每一段故事，安放在属于你的私人空间。',
+    label: '海岸 / 让回忆有处可寻',
+  },
+  {
+    image: travelDesert,
+    title: <>走过的远方，<br />终会成为故事。</>,
+    description: '那些在风与沙之间定格的瞬间，值得被好好收藏。',
+    label: '沙漠 / 收藏每一次出发',
+  },
+  {
+    image: travelSnow,
+    title: <>翻过雪山，<br />留住这一帧。</>,
+    description: '把雪山、湖泊与路上的光，留在只属于你的旅途档案里。',
+    label: '雪山 / 珍藏沿途的光',
+  },
+];
 
 const USERNAME_RULES = [
   { required: true, message: '请输入用户名' },
@@ -10,6 +34,7 @@ const USERNAME_RULES = [
 ];
 
 export default function AuthPage({ onSuccess }) {
+  const [scene] = useState(() => SCENES[Math.floor(Math.random() * SCENES.length)]);
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -40,29 +65,24 @@ export default function AuthPage({ onSuccess }) {
   };
 
   return (
-    <div className="auth-page">
+    <div className="auth-page" style={{ '--auth-scene-image': `url("${scene.image}")` }}>
       <div className="auth-shell">
-        <aside className="auth-visual" style={{ backgroundImage: `url(${travelCoast})` }}>
+        <aside className="auth-visual">
           <div className="auth-visual-top">
-            <span className="auth-logo-mark"><CameraOutlined /></span>
-            <span className="auth-logo-name">movehome<span className="auth-logo-dot">.</span></span>
+            <Brand light />
           </div>
           <div className="auth-visual-content">
             <span className="auth-visual-kicker"><span className="auth-kicker-line" /> YOUR JOURNEY, KEPT CLOSE</span>
-            <h2>去过的地方，<br />都值得珍藏。</h2>
-            <p>将旅途中的每一帧风景、每一段故事，<br className="auth-desktop-break" />安放在属于你的私人空间。</p>
+            <h2>{scene.title}</h2>
+            <p>{scene.description}</p>
           </div>
           <div className="auth-visual-bottom">
-            <span>01 / 让回忆有处可寻</span>
+            <span>{scene.label}</span>
             <span>EXPLORE · CAPTURE · KEEP</span>
           </div>
         </aside>
 
         <main className="auth-form-side">
-          <div className="auth-mobile-brand">
-            <span className="auth-logo-mark"><CameraOutlined /></span>
-            <span className="auth-logo-name">movehome<span className="auth-logo-dot">.</span></span>
-          </div>
           <div className="auth-form-content">
             <div className="auth-eyebrow">YOUR SPACE, YOUR STORY <span>✳</span></div>
             <h1>{isRegister ? '开启你的旅途档案' : '欢迎回来'}</h1>

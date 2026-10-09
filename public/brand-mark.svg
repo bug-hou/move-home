@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="旅帧标志">
+  <rect width="64" height="64" rx="16" fill="#25443F"/>
+  <path d="M12 20V16a4 4 0 0 1 4-4h4m24 0h4a4 4 0 0 1 4 4v4M12 44v4a4 4 0 0 0 4 4h4m24 0h4a4 4 0 0 0 4-4v-4" stroke="#F9F5EB" stroke-width="2.8" stroke-linecap="round"/>
+  <circle cx="41" cy="24" r="4" fill="#E5A07C"/>
+  <path d="m16 40 11-12 8 9 4-4 9 9" stroke="#F9F5EB" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 51c0-5 8-7 8-12" stroke="#E5A07C" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="2 4"/>
+</svg>
