@@ -37,7 +37,8 @@ export async function api(path, { method = 'GET', body } = {}) {
       res.status === 404
         ? '接口不可用：请使用 edgeone makers dev 启动后端后再试'
         : `请求失败 (${res.status})`;
-    throw new ApiError(data.error || fallback, res.status);
+    const msg = data.error ? (data.detail ? `${data.error}（${data.detail}）` : data.error) : fallback;
+    throw new ApiError(msg, res.status);
   }
   if (text && !Object.keys(data).length && !/^\s*[{[]/.test(text)) {
     throw new ApiError('接口返回异常：请使用 edgeone makers dev 启动后端后再试', res.status);

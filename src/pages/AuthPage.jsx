@@ -1,7 +1,8 @@
-import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { Alert, Button, Form, Input, Tabs } from 'antd';
+import { ArrowRightOutlined, CameraOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
+import { Alert, Button, Form, Input } from 'antd';
 import { useState } from 'react';
 import { api } from '../api.js';
+import travelCoast from '../assets/travel-coast-crop.jpg';
 
 const USERNAME_RULES = [
   { required: true, message: '请输入用户名' },
@@ -32,6 +33,7 @@ export default function AuthPage({ onSuccess }) {
   };
 
   const changeMode = (key) => {
+    if (loading || mode === key) return;
     setMode(key);
     setError('');
     form.resetFields(['password', 'confirm']);
@@ -39,74 +41,105 @@ export default function AuthPage({ onSuccess }) {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <h1>Move Home</h1>
-          <p>简单、安全的个人网盘</p>
-        </div>
+      <div className="auth-shell">
+        <aside className="auth-visual" style={{ backgroundImage: `url(${travelCoast})` }}>
+          <div className="auth-visual-top">
+            <span className="auth-logo-mark"><CameraOutlined /></span>
+            <span className="auth-logo-name">movehome<span className="auth-logo-dot">.</span></span>
+          </div>
+          <div className="auth-visual-content">
+            <span className="auth-visual-kicker"><span className="auth-kicker-line" /> YOUR JOURNEY, KEPT CLOSE</span>
+            <h2>去过的地方，<br />都值得珍藏。</h2>
+            <p>将旅途中的每一帧风景、每一段故事，<br className="auth-desktop-break" />安放在属于你的私人空间。</p>
+          </div>
+          <div className="auth-visual-bottom">
+            <span>01 / 让回忆有处可寻</span>
+            <span>EXPLORE · CAPTURE · KEEP</span>
+          </div>
+        </aside>
 
-        <Tabs
-          centered
-          activeKey={mode}
-          onChange={changeMode}
-          items={[
-            { key: 'login', label: '登录' },
-            { key: 'register', label: '注册' },
-          ]}
-        />
+        <main className="auth-form-side">
+          <div className="auth-mobile-brand">
+            <span className="auth-logo-mark"><CameraOutlined /></span>
+            <span className="auth-logo-name">movehome<span className="auth-logo-dot">.</span></span>
+          </div>
+          <div className="auth-form-content">
+            <div className="auth-eyebrow">YOUR SPACE, YOUR STORY <span>✳</span></div>
+            <h1>{isRegister ? '开启你的旅途档案' : '欢迎回来'}</h1>
+            <p className="auth-subtitle">
+              {isRegister ? '创建账号，让每一次出发都有迹可循。' : '那些美好的旅途瞬间，都在这里等你。'}
+            </p>
 
-        <Form form={form} layout="vertical" requiredMark={false} onFinish={submit}>
-          <Form.Item name="username" rules={USERNAME_RULES}>
-            <Input
-              prefix={<UserOutlined />}
-              placeholder="用户名（字母 / 数字 / 下划线）"
-              autoComplete="username"
-              size="large"
-            />
-          </Form.Item>
-          <Form.Item
-            name="password"
-            rules={[
-              { required: true, message: '请输入密码' },
-              ...(isRegister ? [{ min: 8, max: 128, message: '密码长度需为 8-128 位' }] : []),
-            ]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
-              placeholder={isRegister ? '密码（至少 8 位）' : '密码'}
-              autoComplete={isRegister ? 'new-password' : 'current-password'}
-              size="large"
-            />
-          </Form.Item>
-          {isRegister && (
-            <Form.Item
-              name="confirm"
-              dependencies={['password']}
-              rules={[
-                { required: true, message: '请再次输入密码' },
-                ({ getFieldValue }) => ({
-                  validator: (_, v) =>
-                    !v || getFieldValue('password') === v
-                      ? Promise.resolve()
-                      : Promise.reject(new Error('两次输入的密码不一致')),
-                }),
-              ]}
-            >
-              <Input.Password
-                prefix={<LockOutlined />}
-                placeholder="确认密码"
-                autoComplete="new-password"
-                size="large"
-              />
-            </Form.Item>
-          )}
+            <div className="auth-switch" aria-label="登录或注册">
+              <button type="button" className={isRegister ? '' : 'active'} aria-pressed={!isRegister} onClick={() => changeMode('login')}>登录</button>
+              <button type="button" className={isRegister ? 'active' : ''} aria-pressed={isRegister} onClick={() => changeMode('register')}>注册</button>
+            </div>
 
-          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+            <Form form={form} layout="vertical" requiredMark={false} onFinish={submit} className="auth-form">
+              <Form.Item name="username" label="用户名" rules={USERNAME_RULES}>
+                <Input
+                  prefix={<UserOutlined />}
+                  placeholder="字母、数字或下划线"
+                  autoComplete="username"
+                  size="large"
+                />
+              </Form.Item>
+              <Form.Item
+                name="password"
+                label="密码"
+                rules={[
+                  { required: true, message: '请输入密码' },
+                  ...(isRegister ? [{ min: 8, max: 128, message: '密码长度需为 8-128 位' }] : []),
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined />}
+                  placeholder={isRegister ? '至少 8 位密码' : '请输入密码'}
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  size="large"
+                />
+              </Form.Item>
+              {isRegister && (
+                <Form.Item
+                  name="confirm"
+                  label="确认密码"
+                  dependencies={['password']}
+                  rules={[
+                    { required: true, message: '请再次输入密码' },
+                    ({ getFieldValue }) => ({
+                      validator: (_, v) =>
+                        !v || getFieldValue('password') === v
+                          ? Promise.resolve()
+                          : Promise.reject(new Error('两次输入的密码不一致')),
+                    }),
+                  ]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="再次输入密码"
+                    autoComplete="new-password"
+                    size="large"
+                  />
+                </Form.Item>
+              )}
 
-          <Button type="primary" htmlType="submit" size="large" block loading={loading}>
-            {isRegister ? '注册并登录' : '登录'}
-          </Button>
-        </Form>
+              {error && <Alert className="auth-error" type="error" message={error} showIcon />}
+
+              <Button className="auth-submit" type="primary" htmlType="submit" size="large" block loading={loading}>
+                {isRegister ? '创建账号' : '进入我的空间'} {!loading && <ArrowRightOutlined />}
+              </Button>
+            </Form>
+
+            <p className="auth-mode-hint">
+              {isRegister ? '已经有账号了？' : '第一次来到这里？'}{' '}
+              <button type="button" onClick={() => changeMode(isRegister ? 'login' : 'register')} disabled={loading}>
+                {isRegister ? '返回登录' : '创建账号'} <ArrowRightOutlined />
+              </button>
+            </p>
+            {isRegister && <p className="auth-register-note">首次注册后默认关闭新账号注册，已有账号请直接登录。</p>}
+          </div>
+          <div className="auth-form-footer">为你的旅途素材，留一处安心的归档地。</div>
+        </main>
       </div>
     </div>
   );
