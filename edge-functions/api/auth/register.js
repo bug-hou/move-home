@@ -47,9 +47,9 @@ export const onRequestPost = route(
     }
 
     await run('创建账号(密码哈希 + KV put)', () => createUser(username, password));
-    const cookie = await run('创建会话(KV put)', () => createSession(request, username));
+    const { token, cookie } = await run('创建会话(KV put)', () => createSession(request, username));
     log('注册完成');
-    return json({ username }, 200, { 'Set-Cookie': cookie });
+    return json({ username, token }, 200, { 'Set-Cookie': cookie });
   },
   { auth: false },
 );

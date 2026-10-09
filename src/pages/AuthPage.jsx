@@ -63,7 +63,7 @@ export default function AuthPage({ onSuccess }) {
         method: 'POST',
         body: { username: values.username.trim(), password: values.password },
       });
-      onSuccess(r.username);
+      onSuccess(r);
     } catch (e) {
       setError(e.message);
     } finally {
